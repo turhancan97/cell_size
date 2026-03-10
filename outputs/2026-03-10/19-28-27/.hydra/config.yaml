@@ -1,0 +1,29 @@
+model:
+  model_type: cpsam
+  custom_model_path: null
+  gpu: true
+  batch_size: 32
+data:
+  data_dir: /home/kargin/Projects/repositories/cell_size/data/ProjectA
+  file_types:
+  - .tif
+  recursive: true
+  channels: null
+  pixel_to_um: null
+output:
+  mask_format: tif
+  csv_path: results.csv
+  generate_overlays: false
+  generate_plots: false
+  compute_cell_areas: false
+segmentation:
+  target: membrane
+  chan: 0
+  chan2: 0
+  flow_threshold: 0.4
+  cellprob_threshold: 0.0
+  tile_norm_blocksize: 0
+  resize: 1000
+  min_cell_size: 15
+cell_type: Unknown
+force: true

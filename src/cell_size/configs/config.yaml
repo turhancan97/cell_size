@@ -1,0 +1,9 @@
+defaults:
+  - model: cpsam
+  - data: default
+  - output: default
+  - segmentation: membrane
+  - _self_
+
+cell_type: "Unknown"
+force: false

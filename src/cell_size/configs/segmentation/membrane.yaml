@@ -1,0 +1,8 @@
+target: "membrane"
+chan: 0
+chan2: 0
+flow_threshold: 0.4
+cellprob_threshold: 0.0
+tile_norm_blocksize: 0
+resize: 0
+min_cell_size: 15

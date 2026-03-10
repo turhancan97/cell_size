@@ -1,0 +1,4 @@
+model_type: "cpsam"
+custom_model_path: null
+gpu: true
+batch_size: 32

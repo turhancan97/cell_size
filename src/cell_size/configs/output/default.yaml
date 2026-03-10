@@ -1,0 +1,5 @@
+mask_format: "tif"
+csv_path: "results.csv"
+generate_overlays: false
+generate_plots: false
+compute_cell_areas: false
