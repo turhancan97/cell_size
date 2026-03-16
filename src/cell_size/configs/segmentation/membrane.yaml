@@ -1,8 +1,10 @@
 target: "membrane"
-chan: 0
-chan2: 0
+channel_map: [null, 1, 2]
 flow_threshold: 0.4
 cellprob_threshold: 0.0
 tile_norm_blocksize: 0
 resize: 0
 min_cell_size: 15
+niter: 500
+threshold_channel: null
+threshold_value: 0.5

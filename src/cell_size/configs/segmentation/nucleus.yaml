@@ -1,8 +1,10 @@
 target: "nucleus"
-chan: 1
-chan2: 0
+channel_map: [0, 0, 0]
 flow_threshold: 0.4
 cellprob_threshold: 0.0
 tile_norm_blocksize: 0
 resize: 0
 min_cell_size: 15
+niter: 500
+threshold_channel: 0
+threshold_value: 0.5
