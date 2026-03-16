@@ -16,6 +16,8 @@ Batch cell segmentation and size estimation for microscopy images using
 - **Multiple output formats** -- masks as 16-bit TIFF or NumPy `.npy`.
 - **Optional overlays and histograms** for quality checking.
 - **Catalog CSV** recording every processed image with metadata.
+- **Cell quality classifier** -- train a binary good/bad classifier from human
+  feedback and automatically filter cells during size estimation.
 
 ## Installation
 
@@ -181,6 +183,162 @@ data_dir/
 Relative_Path,Image_Name,File_Type,Mask_Name,Resize,Cell_Type,Timestamp
 projectA/image000,image000,jpg,image000_mask,1000,FrogBlood,2026-03-10T17:30:00
 ```
+
+## Cell Quality Classifier
+
+The classifier module automates the human-in-the-loop cell validation
+workflow. Biologists review segmented cells in a web UI and label them as
+"good" (include in size estimation) or "bad" (exclude). The classifier learns
+from these labels and applies the same filtering automatically to new datasets.
+
+### Training
+
+```bash
+cell-size-train \
+    feedback_csvs='["/path/to/feedback1.csv", "/path/to/feedback2.csv"]' \
+    data_dir=/path/to/segmented/data \
+    output_dir=./classifier_output \
+    classifier.encoder=resnet18 \
+    classifier.freeze_encoder=true \
+    classifier.epochs=30
+```
+
+Pipeline: merge feedback CSVs -> majority-vote consensus -> extract cell
+crops -> train/val/test split -> train -> evaluate -> save checkpoint +
+confusion matrix.
+
+### Inference
+
+```bash
+cell-size-classify \
+    checkpoint=./classifier_output/best_model.pt \
+    data_dir=/path/to/new/segmented/data \
+    output_dir=./classify_output \
+    classifier.confidence_threshold=0.7
+```
+
+Pipeline: load model -> classify every cell in the dataset -> write
+predictions CSV -> compute filtered areas (good cells only) -> generate
+filtered overlay images.
+
+### Classifier Configuration (`src/cell_size/configs/classifier/default.yaml`)
+
+| Key                          | Default      | Description                                             |
+|------------------------------|--------------|---------------------------------------------------------|
+| `crop_size`                  | `224`        | Cell crop resize resolution                             |
+| `crop_padding_pct`           | `0.2`        | Padding around bounding box (fraction)                  |
+| `crop_format`                | `"png"`      | Saved crop format (`png` or `jpg`)                      |
+| `mask_background`            | `false`      | Zero out pixels outside cell mask                       |
+| `crops_dir`                  | `"crops"`    | Output directory for extracted crops                    |
+| `split_ratio`                | `[0.7, 0.15, 0.15]` | Train / val / test split ratio                 |
+| `seed`                       | `42`         | Random seed for splitting and reproducibility           |
+| `encoder`                    | `"resnet18"` | Backbone: `resnet18`, `resnet50`, `vit_b_16`, `efficientnet_b0` |
+| `freeze_encoder`             | `false`      | Freeze backbone, train only classification head         |
+| `pretrained`                 | `true`       | Use ImageNet-pretrained weights                         |
+| `epochs`                     | `50`         | Maximum training epochs                                 |
+| `batch_size`                 | `32`         | Training batch size                                     |
+| `learning_rate`              | `0.001`      | Adam learning rate                                      |
+| `weight_decay`               | `0.0001`     | Adam weight decay                                       |
+| `early_stopping_patience`    | `7`          | Epochs without improvement before stopping              |
+| `confidence_threshold`       | `0.7`        | Minimum confidence to label a cell as "good"            |
+| `gpu`                        | `true`       | Use GPU if available                                    |
+| `wandb.enabled`              | `false`      | Enable Weights & Biases logging                         |
+| `wandb.project`              | `"cell-quality"` | WandB project name                                  |
+| `cross_validation.enabled`   | `false`      | Use k-fold cross-validation instead of single split     |
+| `cross_validation.k_folds`   | `5`          | Number of folds                                         |
+
+### Training Config (`src/cell_size/configs/train.yaml`)
+
+| Key              | Default                  | Description                              |
+|------------------|--------------------------|------------------------------------------|
+| `feedback_csvs`  | `[]`                     | List of feedback CSV file paths          |
+| `data_dir`       | `null`                   | Root of segmented dataset                |
+| `output_dir`     | `"./classifier_output"`  | Where to save crops, checkpoints, plots  |
+
+### Inference Config (`src/cell_size/configs/classify.yaml`)
+
+| Key                          | Default                | Description                               |
+|------------------------------|------------------------|-------------------------------------------|
+| `checkpoint`                 | `null`                 | Path to trained model checkpoint           |
+| `data_dir`                   | `null`                 | Root of segmented dataset to classify      |
+| `output_dir`                 | `"./classify_output"`  | Output directory for predictions           |
+| `compute_filtered_areas`     | `true`                 | Compute areas for good cells only          |
+| `generate_filtered_overlays` | `true`                 | Generate overlay images with filtering     |
+| `pixel_to_um`                | `null`                 | Manual pixel-to-um scale for area calc     |
+
+### Feedback CSV Format
+
+The feedback CSV (from the review web UI) must have these columns:
+
+```csv
+dataset,image_path,mask_index,verdict,reviewer_email,comment,reviewed_at
+datasetA,img001,25,good,reviewer@example.com,"Cell is circular",2026-03-16T14:00:00
+```
+
+### Classifier Output
+
+```
+classifier_output/
+  crops/
+    train/good/*.png
+    train/bad/*.png
+    val/good/*.png
+    val/bad/*.png
+    test/good/*.png
+    test/bad/*.png
+  best_model.pt           # best checkpoint (by val F1)
+  confusion_matrix.png    # test set confusion matrix
+
+classify_output/
+  predictions.csv         # per-cell predictions with confidence
+  filtered_areas.csv      # areas for good cells only
+  overlays/
+    img001_filtered_overlay.png
+    img002_filtered_overlay.png
+```
+
+## Interactive Demo (Gradio)
+
+A browser-based demo that runs the full pipeline end-to-end: upload an image,
+segment cells, classify them as good/bad, and view filtered results.
+
+![Gradio demo screenshot](assets/demo.png)
+
+### Install
+
+```bash
+pip install -e ".[demo]"
+```
+
+### Launch
+
+```bash
+# Via CLI entry point
+cell-size-demo
+
+# Or directly
+python demo/app.py
+
+# With a public share link
+cell-size-demo --share
+
+# Custom host/port
+cell-size-demo --server-name 0.0.0.0 --server-port 8080
+```
+
+Then open `http://localhost:7860` in your browser.
+
+### What it does
+
+1. Upload a single microscopy image.
+2. Choose membrane or nucleus segmentation, adjust parameters via sliders.
+3. Optionally provide a trained classifier checkpoint (`.pt` file).
+4. Click **Run Pipeline** to:
+   - Segment all cells and show a numbered overlay.
+   - Classify each cell as good/bad (if checkpoint is provided).
+   - Show the filtered overlay (good cells in colour, bad cells greyed out).
+   - Display per-cell predictions table and filtered areas with diameters.
+   - Provide downloadable CSV files for both tables.
 
 ## License
 

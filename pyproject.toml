@@ -19,6 +19,8 @@ dependencies = [
     "pandas",
     "scikit-image",
     "torch",
+    "torchvision",
+    "scikit-learn",
 ]
 
 [project.optional-dependencies]
@@ -26,9 +28,18 @@ dev = [
     "pytest",
     "ruff",
 ]
+logging = [
+    "wandb",
+]
+demo = [
+    "gradio",
+]
 
 [project.scripts]
 cell-size = "cell_size.main:main"
+cell-size-train = "cell_size.train_main:main"
+cell-size-classify = "cell_size.classify_main:main"
+cell-size-demo = "cell_size.demo_launcher:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

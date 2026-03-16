@@ -218,3 +218,12 @@ __marimo__/
 #data
 data/
 outputs/
+
+# wandb
+wandb/
+
+# classifier output
+classifier_output/
+
+# classify output
+classify_output/

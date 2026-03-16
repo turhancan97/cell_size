@@ -1,0 +1,7 @@
+defaults:
+  - classifier: default
+  - _self_
+
+feedback_csvs: ['/home/kargin/Projects/repositories/cell_size/tmp_47r2lsd_feedback_20260316_162128.csv']            # list of feedback CSV paths
+data_dir: '/shared/sets/datasets/vision/cellpose/adults_first_trial'               # root of segmented dataset (cell-size output)
+output_dir: "./classifier_output"

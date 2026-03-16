@@ -1,0 +1,11 @@
+defaults:
+  - classifier: default
+  - _self_
+
+checkpoint: null              # path to best model checkpoint
+data_dir: '/shared/sets/datasets/vision/cellpose/example'                # root of segmented dataset to classify
+output_dir: "./classify_output"
+compute_filtered_areas: true
+compute_diameters: true       # measure major/minor axis (long/short diameter) per cell
+generate_filtered_overlays: true
+pixel_to_um: null
