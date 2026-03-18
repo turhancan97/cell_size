@@ -22,11 +22,12 @@ from cell_size.classifier.models import build_model
 logger = logging.getLogger(__name__)
 
 MASK_SUFFIXES = ("_mask.tif", "_mask.tiff", "_mask.npy")
+NUCLEUS_MASK_SUFFIXES = ("_nucleus_mask.tif", "_nucleus_mask.tiff", "_nucleus_mask.npy")
 IMAGE_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
 
 
 def _load_mask(image_folder: Path, image_stem: str) -> np.ndarray | None:
-    """Try to load a mask from the per-image folder."""
+    """Try to load a membrane mask from the per-image folder."""
     for suffix in MASK_SUFFIXES:
         mp = image_folder / f"{image_stem}{suffix}"
         if mp.is_file():
@@ -36,6 +37,43 @@ def _load_mask(image_folder: Path, image_stem: str) -> np.ndarray | None:
                 import tifffile
                 return tifffile.imread(str(mp))
     return None
+
+
+def _load_nucleus_mask(image_folder: Path, image_stem: str) -> np.ndarray | None:
+    """Try to load a nucleus mask from the per-image folder."""
+    for suffix in NUCLEUS_MASK_SUFFIXES:
+        mp = image_folder / f"{image_stem}{suffix}"
+        if mp.is_file():
+            if mp.suffix == ".npy":
+                return np.load(str(mp))
+            else:
+                import tifffile
+                return tifffile.imread(str(mp))
+    return None
+
+
+def match_nuclei_to_cells(
+    cell_masks: np.ndarray,
+    nuc_masks: np.ndarray,
+) -> dict[int, int | None]:
+    """Map each cell label to its best-matching nucleus label.
+
+    For each cell, the nucleus with the largest pixel overlap inside that
+    cell is selected. Cells with no overlapping nucleus map to ``None``.
+    When multiple nuclei overlap a cell, only the largest is kept.
+    """
+    matches: dict[int, int | None] = {}
+    for cell_label in np.unique(cell_masks):
+        if cell_label == 0:
+            continue
+        nuc_in_cell = nuc_masks[cell_masks == cell_label]
+        nuc_in_cell = nuc_in_cell[nuc_in_cell > 0]
+        if len(nuc_in_cell) == 0:
+            matches[cell_label] = None
+            continue
+        values, counts = np.unique(nuc_in_cell, return_counts=True)
+        matches[cell_label] = int(values[counts.argmax()])
+    return matches
 
 
 def _build_inference_transform(crop_size: int) -> transforms.Compose:
@@ -189,12 +227,10 @@ def compute_filtered_areas(
 
     Pixel scale is resolved **per image**: first by auto-detecting from
     OME-TIFF / TIFF metadata, then falling back to ``config_pixel_to_um``.
-    Different images may therefore have different scales.
 
-    When ``compute_diameters`` is True, each cell's major and minor axis
-    lengths are measured by fitting an ellipse to the cell region via
-    ``skimage.measure.regionprops``.  These correspond to the long and
-    short diameters of the cell.
+    When a nucleus mask (``<stem>_nucleus_mask.*``) is found alongside
+    the membrane mask, nucleus measurements (area, major/minor axis,
+    N/C ratio) are automatically added.
     """
     from skimage.measure import regionprops_table
 
@@ -206,6 +242,7 @@ def compute_filtered_areas(
     good_df = predictions_df[predictions_df["predicted_verdict"] == "good"]
     records: list[dict] = []
     has_any_um = False
+    has_any_nucleus = False
 
     for image_name, group in good_df.groupby("image_path"):
         image_folder = _find_image_folder(data_dir, str(image_name))
@@ -226,6 +263,7 @@ def compute_filtered_areas(
         if pixel_to_um is not None:
             has_any_um = True
 
+        # Cell regionprops
         props_lut: dict[int, dict] = {}
         if compute_diameters:
             props = regionprops_table(
@@ -237,6 +275,24 @@ def compute_filtered_areas(
                     "area": int(props["area"][i]),
                     "major": float(props["major_axis_length"][i]),
                     "minor": float(props["minor_axis_length"][i]),
+                }
+
+        # Nucleus matching (if nucleus mask exists)
+        nuc_mask = _load_nucleus_mask(image_folder, str(image_name))
+        nuc_matches: dict[int, int | None] = {}
+        nuc_props_lut: dict[int, dict] = {}
+        if nuc_mask is not None:
+            has_any_nucleus = True
+            nuc_matches = match_nuclei_to_cells(mask, nuc_mask)
+            nuc_props = regionprops_table(
+                nuc_mask.astype(np.int32),
+                properties=("label", "area", "major_axis_length", "minor_axis_length"),
+            )
+            for i in range(len(nuc_props["label"])):
+                nuc_props_lut[int(nuc_props["label"][i])] = {
+                    "area": int(nuc_props["area"][i]),
+                    "major": float(nuc_props["major_axis_length"][i]),
+                    "minor": float(nuc_props["minor_axis_length"][i]),
                 }
 
         for _, row in group.iterrows():
@@ -266,6 +322,25 @@ def compute_filtered_areas(
                     rec["major_axis_um"] = round(major_px * pixel_to_um, 4)
                     rec["minor_axis_um"] = round(minor_px * pixel_to_um, 4)
 
+            # Nucleus columns
+            if nuc_mask is not None:
+                nuc_label = nuc_matches.get(label)
+                if nuc_label is not None and nuc_label in nuc_props_lut:
+                    np_info = nuc_props_lut[nuc_label]
+                    rec["nucleus_area_px"] = np_info["area"]
+                    rec["nucleus_major_axis_px"] = round(np_info["major"], 2)
+                    rec["nucleus_minor_axis_px"] = round(np_info["minor"], 2)
+                    rec["nc_ratio"] = round(np_info["area"] / max(area_px, 1), 4)
+                    if pixel_to_um is not None:
+                        rec["nucleus_area_um2"] = round(np_info["area"] * pixel_to_um**2, 4)
+                        rec["nucleus_major_axis_um"] = round(np_info["major"] * pixel_to_um, 4)
+                        rec["nucleus_minor_axis_um"] = round(np_info["minor"] * pixel_to_um, 4)
+                else:
+                    rec["nucleus_area_px"] = None
+                    rec["nucleus_major_axis_px"] = None
+                    rec["nucleus_minor_axis_px"] = None
+                    rec["nc_ratio"] = None
+
             records.append(rec)
 
     cols = ["image_path", "mask_index", "area_px"]
@@ -275,6 +350,10 @@ def compute_filtered_areas(
         cols.extend(["major_axis_px", "minor_axis_px"])
         if has_any_um:
             cols.extend(["major_axis_um", "minor_axis_um"])
+    if has_any_nucleus:
+        cols.extend(["nucleus_area_px", "nucleus_major_axis_px", "nucleus_minor_axis_px", "nc_ratio"])
+        if has_any_um:
+            cols.extend(["nucleus_area_um2", "nucleus_major_axis_um", "nucleus_minor_axis_um"])
 
     df = pd.DataFrame(records, columns=cols)
     df.to_csv(output_path, index=False)

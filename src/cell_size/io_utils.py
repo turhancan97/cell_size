@@ -135,21 +135,39 @@ def organize_image_folder(image_path: Path, data_dir: Path) -> Path:
     return folder
 
 
-def is_already_processed(image_path: Path, mask_format: str = "tif") -> bool:
+def target_infix(target: str) -> str:
+    """Return the file-name infix for a segmentation target.
+
+    ``"membrane"`` (the default) returns ``""`` for backward compatibility.
+    Any other target (e.g. ``"nucleus"``) returns ``"_<target>"``.
+    """
+    if target == "membrane":
+        return ""
+    return f"_{target}"
+
+
+def is_already_processed(
+    image_path: Path,
+    mask_format: str = "tif",
+    infix: str = "",
+) -> bool:
     """Check whether a mask already exists for this image (for resume support).
+
+    *infix* is inserted before ``_mask`` so that membrane and nucleus
+    masks are checked independently (e.g. ``""`` -> ``_mask.tif``,
+    ``"_nucleus"`` -> ``_nucleus_mask.tif``).
 
     Handles both cases: image still in its original location, or already
     moved into a per-image folder.
     """
     mask_ext = ".npy" if mask_format == "npy" else ".tif"
+    mask_name = image_path.stem + infix + "_mask" + mask_ext
 
     if _is_in_own_folder(image_path):
-        mask_path = image_path.parent / (image_path.stem + "_mask" + mask_ext)
-        return mask_path.is_file()
+        return (image_path.parent / mask_name).is_file()
 
     folder = image_path.parent / image_path.stem
-    mask_path = folder / (image_path.stem + "_mask" + mask_ext)
-    return (folder / image_path.name).is_file() and mask_path.is_file()
+    return (folder / image_path.name).is_file() and (folder / mask_name).is_file()
 
 
 def get_relative_path(folder: Path, data_dir: Path) -> str:

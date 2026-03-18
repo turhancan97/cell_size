@@ -12,6 +12,7 @@ from cell_size.classifier.crop_extractor import _read_image_rgb
 from cell_size.classifier.inference import (
     _find_processed_images,
     _load_mask,
+    _load_nucleus_mask,
     compute_filtered_areas,
     run_inference,
 )
@@ -78,9 +79,12 @@ def main(cfg: DictConfig) -> None:
             if mask is None:
                 continue
 
+            nuc_mask = _load_nucleus_mask(img_path.parent, image_stem)
             img_rgb = _read_image_rgb(img_path)
             overlay_path = overlays_dir / f"{image_stem}_filtered_overlay.png"
-            generate_filtered_overlay(img_rgb, mask, img_preds, overlay_path)
+            generate_filtered_overlay(
+                img_rgb, mask, img_preds, overlay_path, nuc_masks=nuc_mask,
+            )
     else:
         logger.info("Step 3/3: Skipping filtered overlays (disabled)")
 

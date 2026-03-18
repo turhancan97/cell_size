@@ -18,6 +18,7 @@ from cell_size.classifier.inference import (
     _build_inference_transform,
     classify_cells,
     load_checkpoint,
+    match_nuclei_to_cells,
 )
 from cell_size.classifier.visualization import generate_filtered_overlay
 from cell_size.io_utils import read_image
@@ -95,6 +96,7 @@ def run_pipeline(
     checkpoint_path: str,
     confidence_threshold: float,
     pixel_to_um: float | None,
+    also_segment_nuclei: bool = True,
 ):
     """End-to-end pipeline: segment -> classify -> measure."""
     if image_path is None:
@@ -106,7 +108,7 @@ def run_pipeline(
     img = read_image(image_path)
     logger.info("Loaded image: %s  shape=%s", image_path.name, img.shape)
 
-    # --- 2. Segment ---
+    # --- 2. Segment (membrane / selected target) ---
     segmenter = _get_segmenter()
     preset = _SEG_PRESETS.get(seg_target, _SEG_PRESETS["membrane"])
     seg_cfg = OmegaConf.create({
@@ -120,7 +122,24 @@ def run_pipeline(
     })
     masks = segmenter.segment(img, seg_cfg)
     n_cells = int(masks.max())
-    logger.info("Segmented %d cells", n_cells)
+    logger.info("Segmented %d cells (target=%s)", n_cells, seg_target)
+
+    # --- 2b. Also segment nuclei (if requested and target is membrane) ---
+    nuc_masks: np.ndarray | None = None
+    if also_segment_nuclei and seg_target == "membrane":
+        nuc_preset = _SEG_PRESETS["nucleus"]
+        nuc_cfg = OmegaConf.create({
+            **nuc_preset,
+            "flow_threshold": flow_threshold,
+            "cellprob_threshold": cellprob_threshold,
+            "tile_norm_blocksize": 0,
+            "resize": resize,
+            "min_cell_size": min_cell_size,
+            "niter": niter,
+        })
+        nuc_masks = segmenter.segment(img, nuc_cfg)
+        n_nuc = int(nuc_masks.max())
+        logger.info("Segmented %d nuclei", n_nuc)
 
     # --- 3. Segmentation overlay ---
     tmp_dir = Path(tempfile.mkdtemp())
@@ -149,18 +168,17 @@ def run_pipeline(
         )
         preds_df = pd.DataFrame(preds)
 
-        # Save predictions CSV
         preds_csv_path = str(tmp_dir / "predictions.csv")
         preds_df.to_csv(preds_csv_path, index=False)
 
-        # Filtered overlay
         filt_overlay_path = tmp_dir / "filtered_overlay.png"
-        generate_filtered_overlay(img, masks, preds_df, filt_overlay_path)
+        generate_filtered_overlay(
+            img, masks, preds_df, filt_overlay_path, nuc_masks=nuc_masks,
+        )
         filtered_overlay_img = str(filt_overlay_path)
 
-        # Compute areas + diameters for good cells
         areas_df = _compute_good_cell_areas(
-            masks, preds_df, image_path, pixel_to_um,
+            masks, preds_df, image_path, pixel_to_um, nuc_masks=nuc_masks,
         )
         areas_csv_path = str(tmp_dir / "filtered_areas.csv")
         areas_df.to_csv(areas_csv_path, index=False)
@@ -187,8 +205,13 @@ def _compute_good_cell_areas(
     preds_df: pd.DataFrame,
     image_path: Path,
     config_pixel_to_um: float | None,
+    nuc_masks: np.ndarray | None = None,
 ) -> pd.DataFrame:
-    """Compute area and major/minor axis for cells predicted as good."""
+    """Compute area and major/minor axis for cells predicted as good.
+
+    When *nuc_masks* is provided, nucleus measurements and N/C ratio are
+    added for each cell that has a matching nucleus.
+    """
     pixel_to_um = resolve_pixel_scale(image_path, config_pixel_to_um)
 
     good_labels = set(
@@ -202,21 +225,57 @@ def _compute_good_cell_areas(
         properties=("label", "area", "major_axis_length", "minor_axis_length"),
     )
 
+    # Nucleus matching
+    nuc_matches: dict[int, int | None] = {}
+    nuc_props_lut: dict[int, dict] = {}
+    if nuc_masks is not None:
+        nuc_matches = match_nuclei_to_cells(masks, nuc_masks)
+        nuc_props = regionprops_table(
+            nuc_masks.astype(np.int32),
+            properties=("label", "area", "major_axis_length", "minor_axis_length"),
+        )
+        for i in range(len(nuc_props["label"])):
+            nuc_props_lut[int(nuc_props["label"][i])] = {
+                "area": int(nuc_props["area"][i]),
+                "major": float(nuc_props["major_axis_length"][i]),
+                "minor": float(nuc_props["minor_axis_length"][i]),
+            }
+
     records: list[dict] = []
     for i in range(len(props["label"])):
         label = int(props["label"][i])
         if label not in good_labels:
             continue
+        area_px = int(props["area"][i])
         rec: dict = {
             "mask_index": label,
-            "area_px": int(props["area"][i]),
+            "area_px": area_px,
             "major_axis_px": round(float(props["major_axis_length"][i]), 2),
             "minor_axis_px": round(float(props["minor_axis_length"][i]), 2),
         }
         if pixel_to_um is not None:
-            rec["area_um2"] = round(rec["area_px"] * pixel_to_um**2, 4)
+            rec["area_um2"] = round(area_px * pixel_to_um**2, 4)
             rec["major_axis_um"] = round(rec["major_axis_px"] * pixel_to_um, 4)
             rec["minor_axis_um"] = round(rec["minor_axis_px"] * pixel_to_um, 4)
+
+        if nuc_masks is not None:
+            nuc_label = nuc_matches.get(label)
+            if nuc_label is not None and nuc_label in nuc_props_lut:
+                ninfo = nuc_props_lut[nuc_label]
+                rec["nucleus_area_px"] = ninfo["area"]
+                rec["nucleus_major_axis_px"] = round(ninfo["major"], 2)
+                rec["nucleus_minor_axis_px"] = round(ninfo["minor"], 2)
+                rec["nc_ratio"] = round(ninfo["area"] / max(area_px, 1), 4)
+                if pixel_to_um is not None:
+                    rec["nucleus_area_um2"] = round(ninfo["area"] * pixel_to_um**2, 4)
+                    rec["nucleus_major_axis_um"] = round(ninfo["major"] * pixel_to_um, 4)
+                    rec["nucleus_minor_axis_um"] = round(ninfo["minor"] * pixel_to_um, 4)
+            else:
+                rec["nucleus_area_px"] = None
+                rec["nucleus_major_axis_px"] = None
+                rec["nucleus_minor_axis_px"] = None
+                rec["nc_ratio"] = None
+
         records.append(rec)
 
     return pd.DataFrame(records)
@@ -297,6 +356,11 @@ def build_app() -> gr.Blocks:
                         value=500, label="niter", precision=0,
                     )
 
+                also_segment_nuclei = gr.Checkbox(
+                    value=True,
+                    label="Also segment nuclei (adds nucleus measurements)",
+                )
+
                 gr.Markdown("### Classification")
                 checkpoint_path = gr.Textbox(
                     label="Classifier checkpoint path (.pt)",
@@ -364,6 +428,7 @@ def build_app() -> gr.Blocks:
                 checkpoint_path,
                 confidence_threshold,
                 pixel_to_um,
+                also_segment_nuclei,
             ],
             outputs=[
                 seg_overlay_output,

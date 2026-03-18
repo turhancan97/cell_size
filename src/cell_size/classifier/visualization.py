@@ -65,10 +65,14 @@ def generate_filtered_overlay(
     predictions_df: pd.DataFrame,
     output_path: str | Path,
     fontsize: int = 8,
+    nuc_masks: np.ndarray | None = None,
 ) -> Path:
     """Draw overlay where good cells are coloured and bad cells are greyed out.
 
     ``predictions_df`` must have columns ``mask_index`` and ``predicted_verdict``.
+
+    When *nuc_masks* is provided, nucleus boundaries are drawn as cyan
+    outlines inside good cells.
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +128,16 @@ def generate_filtered_overlay(
         else:
             result[y, x] = (128, 128, 128)
 
+    # Draw nucleus boundaries inside good cells
+    if nuc_masks is not None:
+        nuc_outlines = find_boundaries(nuc_masks, mode="inner")
+        nuc_y, nuc_x = np.nonzero(nuc_outlines)
+        cyan = np.array([0, 220, 255], dtype=np.uint8)
+        for y, x in zip(nuc_y, nuc_x):
+            cell_label = masks[y, x]
+            if cell_label in good_labels:
+                result[y, x] = cyan
+
     slices = find_objects(masks)
     centroids: list[tuple[int, int, int]] = []
     for i, slc in enumerate(slices):
@@ -140,9 +154,12 @@ def generate_filtered_overlay(
 
     n_good = len(good_labels)
     n_bad = n_cells - n_good
+    title = f"Filtered overlay: {n_good} good (colour), {n_bad} bad (grey)"
+    if nuc_masks is not None:
+        title += " | nucleus boundaries (cyan)"
     fig, ax = plt.subplots(figsize=(20, 15))
     ax.imshow(result)
-    ax.set_title(f"Filtered overlay: {n_good} good (colour), {n_bad} bad (grey)", fontsize=16)
+    ax.set_title(title, fontsize=16)
     ax.axis("off")
 
     for y, x, label in centroids:

@@ -18,6 +18,9 @@ Batch cell segmentation and size estimation for microscopy images using
 - **Catalog CSV** recording every processed image with metadata.
 - **Cell quality classifier** -- train a binary good/bad classifier from human
   feedback and automatically filter cells during size estimation.
+- **Nucleus measurements** -- run segmentation twice (membrane + nucleus) and
+  the inference pipeline automatically matches nuclei to cells, reporting
+  nucleus area, diameters, and nucleus-to-cytoplasm (N/C) ratio.
 
 ## Installation
 
@@ -158,23 +161,64 @@ Two presets: `membrane` (default) and `nucleus`.
 | `generate_plots`     | `false`        | Save cell-area histogram PNGs                |
 | `compute_cell_areas` | `false`        | Write per-image cell area CSVs               |
 
+## Dual-Run Workflow (Membrane + Nucleus)
+
+To measure both cell and nucleus sizes, run the batch segmentation twice on the
+same dataset -- once for membrane and once for nucleus. The outputs are saved
+with distinct names so they coexist in the same per-image folders:
+
+```bash
+# 1. Segment membranes (default naming: _mask.tif, _overlay.png, ...)
+cell-size data.data_dir=/path/to/images output.generate_overlays=true
+
+# 2. Segment nuclei (nucleus naming: _nucleus_mask.tif, _nucleus_overlay.png, ...)
+cell-size data.data_dir=/path/to/images segmentation=nucleus output.generate_overlays=true
+```
+
+Membrane outputs keep their original names (backward-compatible). Nucleus
+outputs use a `_nucleus_` infix. Each run also writes its own catalog CSV
+(`results.csv` for membrane, `results_nucleus.csv` for nucleus).
+
+During `cell-size-classify` inference, the pipeline automatically detects
+nucleus masks (`_nucleus_mask.tif`) alongside membrane masks and adds
+nucleus measurements to `filtered_areas.csv`:
+
+| Column                  | Description                              |
+|-------------------------|------------------------------------------|
+| `nucleus_area_px`       | Nucleus area in pixels                   |
+| `nucleus_major_axis_px` | Nucleus long diameter (px)               |
+| `nucleus_minor_axis_px` | Nucleus short diameter (px)              |
+| `nc_ratio`              | Nucleus-to-cell area ratio               |
+| `nucleus_area_um2`      | Nucleus area in µm² (if scale known)     |
+| `nucleus_major_axis_um` | Nucleus long diameter in µm              |
+| `nucleus_minor_axis_um` | Nucleus short diameter in µm             |
+
+Cells with no matching nucleus get `NaN` for all nucleus columns. When
+multiple nuclei overlap a cell, only the largest (by pixel overlap) is used.
+
 ## Output Structure
 
-After processing, each image gets its own folder:
+After processing both membrane and nucleus, each image folder contains:
 
 ```
 data_dir/
   projectA/
     image000/
-      image000.jpg            # original image (moved here)
-      image000_mask.tif       # segmentation mask (uint16)
-      image000_overlay.png    # (optional) outline overlay
-      image000_areas.csv      # (optional) per-cell areas
-      image000_histogram.png  # (optional) area distribution
+      image000.jpg                    # original image (moved here)
+      image000_mask.tif               # membrane segmentation mask
+      image000_overlay.png            # (optional) membrane overlay
+      image000_areas.csv              # (optional) membrane cell areas
+      image000_histogram.png          # (optional) membrane area histogram
+      image000_nucleus_mask.tif       # nucleus segmentation mask
+      image000_nucleus_overlay.png    # (optional) nucleus overlay
+      image000_nucleus_areas.csv      # (optional) nucleus areas
+      image000_nucleus_histogram.png  # (optional) nucleus area histogram
     image001/
       image001.tif
       image001_mask.tif
-  results.csv                 # catalog CSV
+      image001_nucleus_mask.tif
+  results.csv                         # membrane catalog CSV
+  results_nucleus.csv                 # nucleus catalog CSV
 ```
 
 ### Catalog CSV format
@@ -291,9 +335,9 @@ classifier_output/
 
 classify_output/
   predictions.csv         # per-cell predictions with confidence
-  filtered_areas.csv      # areas for good cells only
+  filtered_areas.csv      # areas + diameters + nucleus measurements for good cells
   overlays/
-    img001_filtered_overlay.png
+    img001_filtered_overlay.png   # cell outlines + nucleus boundaries (cyan)
     img002_filtered_overlay.png
 ```
 
@@ -332,12 +376,16 @@ Then open `http://localhost:7860` in your browser.
 
 1. Upload a single microscopy image.
 2. Choose membrane or nucleus segmentation, adjust parameters via sliders.
-3. Optionally provide a trained classifier checkpoint (`.pt` file).
-4. Click **Run Pipeline** to:
-   - Segment all cells and show a numbered overlay.
+3. Check "Also segment nuclei" (enabled by default when using membrane mode)
+   to get nucleus measurements alongside cell measurements.
+4. Optionally provide a trained classifier checkpoint (`.pt` file).
+5. Click **Run Pipeline** to:
+   - Segment all cells (and nuclei if enabled) and show a numbered overlay.
    - Classify each cell as good/bad (if checkpoint is provided).
-   - Show the filtered overlay (good cells in colour, bad cells greyed out).
-   - Display per-cell predictions table and filtered areas with diameters.
+   - Show the filtered overlay (good cells in colour, bad cells greyed out,
+     nucleus boundaries in cyan).
+   - Display per-cell predictions table and filtered areas with diameters
+     and nucleus measurements (area, diameters, N/C ratio).
    - Provide downloadable CSV files for both tables.
 
 ## License

@@ -16,6 +16,7 @@ from cell_size.io_utils import (
     read_image,
     save_mask,
     scan_images,
+    target_infix,
 )
 from cell_size.metadata import resolve_pixel_scale
 from cell_size.segmenter import Segmenter
@@ -30,9 +31,10 @@ def _process_single_image(
     segmenter: Segmenter,
     cfg: DictConfig,
     catalog: CatalogCSV,
+    infix: str = "",
 ) -> None:
     """Full pipeline for one image: read -> segment -> organise -> save."""
-    logger.info("Processing: %s", image_path)
+    logger.info("Processing: %s (target=%s)", image_path, cfg.segmentation.target)
 
     channels = list(cfg.data.channels) if cfg.data.channels is not None else None
     img = read_image(image_path, channels=channels)
@@ -44,27 +46,28 @@ def _process_single_image(
         return
 
     folder = organize_image_folder(image_path, data_dir)
+    stem = image_path.stem
 
     new_image_path = folder / image_path.name
     mask_path = save_mask(
         masks,
-        folder / (image_path.stem + "_mask"),
+        folder / (stem + infix + "_mask"),
         mask_format=cfg.output.mask_format,
     )
 
     pixel_scale = resolve_pixel_scale(new_image_path, cfg.data.pixel_to_um)
 
     if cfg.output.compute_cell_areas and pixel_scale is not None:
-        areas_csv = folder / (image_path.stem + "_areas.csv")
+        areas_csv = folder / (stem + infix + "_areas.csv")
         write_cell_areas_csv(masks, pixel_scale, areas_csv)
 
     if cfg.output.generate_overlays:
-        overlay_path = folder / (image_path.stem + "_overlay.png")
+        overlay_path = folder / (stem + infix + "_overlay.png")
         img_for_overlay = read_image(new_image_path, channels=channels)
         generate_overlay(img_for_overlay, masks, overlay_path)
 
     if cfg.output.generate_plots:
-        hist_path = folder / (image_path.stem + "_histogram.png")
+        hist_path = folder / (stem + infix + "_histogram.png")
         generate_area_histogram(masks, hist_path, pixel_scale=pixel_scale)
 
     resize_val = int(cfg.segmentation.resize)
@@ -82,6 +85,7 @@ def main(cfg: DictConfig) -> None:
 
     data_dir = Path(cfg.data.data_dir).resolve()
     force = bool(cfg.force)
+    infix = target_infix(cfg.segmentation.target)
 
     images = scan_images(data_dir, cfg.data.file_types, cfg.data.recursive)
     if not images:
@@ -96,19 +100,21 @@ def main(cfg: DictConfig) -> None:
     failed = 0
 
     for image_path in images:
-        if not force and is_already_processed(image_path, cfg.output.mask_format):
+        if not force and is_already_processed(image_path, cfg.output.mask_format, infix):
             logger.info("Skipping (already processed): %s", image_path.name)
             skipped += 1
             continue
 
         try:
-            _process_single_image(image_path, data_dir, segmenter, cfg, catalog)
+            _process_single_image(image_path, data_dir, segmenter, cfg, catalog, infix)
             processed += 1
         except Exception:
             logger.exception("Failed to process %s", image_path.name)
             failed += 1
 
     csv_path = Path(cfg.output.csv_path)
+    if infix:
+        csv_path = csv_path.with_stem(csv_path.stem + infix)
     if not csv_path.is_absolute():
         csv_path = data_dir / csv_path
 
