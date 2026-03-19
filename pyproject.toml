@@ -21,6 +21,7 @@ dependencies = [
     "torch",
     "torchvision",
     "scikit-learn",
+    "tqdm",
 ]
 
 [project.optional-dependencies]

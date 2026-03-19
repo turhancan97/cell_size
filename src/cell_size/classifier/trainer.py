@@ -19,6 +19,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader, Subset
+from tqdm.auto import tqdm
 from torchvision.datasets import ImageFolder
 
 from cell_size.classifier.dataset import (
@@ -29,6 +30,7 @@ from cell_size.classifier.dataset import (
     get_train_transforms,
 )
 from cell_size.classifier.models import build_model
+from cell_size.classifier.experiment_tracking import write_epoch_results_csv
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +85,9 @@ def _run_epoch(
     all_preds: list[int] = []
 
     ctx = torch.no_grad() if not is_train else torch.enable_grad()
+    desc = "train" if is_train else "val"
     with ctx:
-        for images, targets in loader:
+        for images, targets in tqdm(loader, desc=desc, leave=False):
             images = images.to(device)
             binary_targets = (targets == good_idx).float().unsqueeze(1).to(device)
 
@@ -176,9 +179,25 @@ def _train_standard(
         else []
     )
 
+    epoch_rows: list[dict[str, Any]] = []
+
     for epoch in range(1, int(cfg.epochs) + 1):
         train_m = _run_epoch(model, train_loader, criterion, optimizer, device, good_idx)
         val_m = _run_epoch(model, val_loader, criterion, None, device, good_idx)
+
+        epoch_rows.append({
+            "epoch": epoch,
+            "train_loss": train_m.loss,
+            "train_accuracy": train_m.accuracy,
+            "train_precision": train_m.precision,
+            "train_recall": train_m.recall,
+            "train_f1": train_m.f1,
+            "val_loss": val_m.loss,
+            "val_accuracy": val_m.accuracy,
+            "val_precision": val_m.precision,
+            "val_recall": val_m.recall,
+            "val_f1": val_m.f1,
+        })
 
         logger.info(
             "Epoch %d/%d  train_loss=%.4f train_f1=%.4f  val_loss=%.4f val_f1=%.4f",
@@ -209,6 +228,12 @@ def _train_standard(
             if patience_counter >= patience:
                 logger.info("Early stopping at epoch %d (patience=%d)", epoch, patience)
                 break
+
+    # Write per-epoch metrics for this run
+    try:
+        write_epoch_results_csv(output_dir, epoch_rows)
+    except Exception:
+        logger.exception("Failed to write epoch_results.csv")
 
     result = TrainResult(best_checkpoint=checkpoint_path, best_val_f1=best_val_f1)
 
@@ -263,6 +288,8 @@ def _train_kfold(
     best_fold_f1 = 0.0
     best_checkpoint = output_dir / "best_model.pt"
 
+    epoch_rows: list[dict[str, Any]] = []
+
     for fold, (train_idx, val_idx) in enumerate(skf.split(targets, targets), 1):
         logger.info("=== Fold %d/%d ===", fold, k)
 
@@ -298,8 +325,25 @@ def _train_kfold(
         patience = int(cfg.early_stopping_patience)
 
         for epoch in range(1, int(cfg.epochs) + 1):
-            _run_epoch(model, train_loader, criterion, optimizer, device, good_idx)
+            train_m = _run_epoch(model, train_loader, criterion, optimizer, device, good_idx)
             val_m = _run_epoch(model, val_loader, criterion, None, device, good_idx)
+
+            _log_wandb_kfold_epoch(epoch, fold, train_m, val_m)
+
+            epoch_rows.append({
+                "fold": fold,
+                "epoch": epoch,
+                "train_loss": train_m.loss,
+                "train_accuracy": train_m.accuracy,
+                "train_precision": train_m.precision,
+                "train_recall": train_m.recall,
+                "train_f1": train_m.f1,
+                "val_loss": val_m.loss,
+                "val_accuracy": val_m.accuracy,
+                "val_precision": val_m.precision,
+                "val_recall": val_m.recall,
+                "val_f1": val_m.f1,
+            })
 
             if val_m.f1 > fold_best_f1:
                 fold_best_f1 = val_m.f1
@@ -323,9 +367,38 @@ def _train_kfold(
         fold_f1s.append(fold_best_f1)
         logger.info("Fold %d best val F1: %.4f", fold, fold_best_f1)
 
+        try:
+            import wandb
+
+            if _wandb_run is not None:
+                wandb.log({
+                    "fold": fold,
+                    f"fold{fold}/best_val_f1": fold_best_f1,
+                    "kfold/best_so_far_val_f1": best_fold_f1,
+                })
+        except Exception:
+            pass
+
     mean_f1 = float(np.mean(fold_f1s))
     std_f1 = float(np.std(fold_f1s))
     logger.info("K-fold results: mean_f1=%.4f +/- %.4f", mean_f1, std_f1)
+
+    # Write per-epoch metrics for this run (includes fold column)
+    try:
+        write_epoch_results_csv(output_dir, epoch_rows)
+    except Exception:
+        logger.exception("Failed to write epoch_results.csv")
+
+    try:
+        import wandb
+
+        if _wandb_run is not None:
+            wandb.log({
+                "kfold/mean_f1": mean_f1,
+                "kfold/std_f1": std_f1,
+            })
+    except Exception:
+        pass
 
     result = TrainResult(best_checkpoint=best_checkpoint, best_val_f1=best_fold_f1)
 
@@ -434,6 +507,35 @@ def _log_wandb(epoch: int, train_m: TrainMetrics, val_m: TrainMetrics) -> None:
             "val/accuracy": val_m.accuracy,
             "val/precision": val_m.precision,
             "val/recall": val_m.recall,
+        })
+    except Exception:
+        pass
+
+
+def _log_wandb_kfold_epoch(
+    epoch: int,
+    fold: int,
+    train_m: TrainMetrics,
+    val_m: TrainMetrics,
+) -> None:
+    """Log k-fold metrics to WandB with fold-prefixed keys."""
+    if _wandb_run is None:
+        return
+    try:
+        import wandb
+
+        fold_prefix = f"fold{fold}"
+        wandb.log({
+            "epoch": epoch,
+            "fold": fold,
+            f"{fold_prefix}/train/loss": train_m.loss,
+            f"{fold_prefix}/train/f1": train_m.f1,
+            f"{fold_prefix}/train/accuracy": train_m.accuracy,
+            f"{fold_prefix}/val/loss": val_m.loss,
+            f"{fold_prefix}/val/f1": val_m.f1,
+            f"{fold_prefix}/val/accuracy": val_m.accuracy,
+            f"{fold_prefix}/val/precision": val_m.precision,
+            f"{fold_prefix}/val/recall": val_m.recall,
         })
     except Exception:
         pass

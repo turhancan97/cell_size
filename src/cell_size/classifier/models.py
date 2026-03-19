@@ -14,6 +14,7 @@ _REGISTRY: dict[str, tuple[type, str]] = {
     "resnet50": (models.ResNet50_Weights, "fc"),
     "vit_b_16": (models.ViT_B_16_Weights, "heads.head"),
     "efficientnet_b0": (models.EfficientNet_B0_Weights, "classifier.1"),
+    "squeezenet1_1": (models.SqueezeNet1_1_Weights, "classifier"),
 }
 
 
@@ -40,6 +41,16 @@ def _get_model_and_head(name: str, pretrained: bool) -> tuple[nn.Module, str, in
         model = models.efficientnet_b0(weights=weights)
         in_features = model.classifier[1].in_features
         return model, "classifier.1", in_features
+
+    if name == "squeezenet1_1":
+        # Use ImageNet1K V1 weights by default when pretrained=True.
+        weights = (
+            models.SqueezeNet1_1_Weights.IMAGENET1K_V1 if pretrained else None
+        )
+        model = models.squeezenet1_1(weights=weights)
+        # The backbone outputs 512 channels; we'll attach our own classifier head.
+        in_features = 512
+        return model, "classifier", in_features
 
     raise ValueError(
         f"Unknown encoder '{name}'. Choose from: {list(_REGISTRY.keys())}"
@@ -74,7 +85,15 @@ def build_model(
     """
     model, head_attr, in_features = _get_model_and_head(encoder, pretrained)
 
-    _set_nested_attr(model, head_attr, nn.Linear(in_features, 1))
+    if encoder == "squeezenet1_1":
+        # Replace the classifier block entirely with a simple global pool + linear head.
+        model.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(in_features, 1),
+        )
+    else:
+        _set_nested_attr(model, head_attr, nn.Linear(in_features, 1))
 
     if freeze_encoder:
         head_parts = set(head_attr.split("."))
