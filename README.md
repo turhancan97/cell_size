@@ -243,7 +243,8 @@ cell-size-train \
     data_dir=/path/to/segmented/data \
     output_dir=./classifier_output \
     classifier.encoder='timm/vit_small_patch16_dinov3.lvd1689m' \
-    classifier.use_mlp_head=true \
+    classifier.use_efficient_probing=true \
+    classifier.efficient_probing.num_queries=32 \
     classifier.freeze_encoder=true \
     classifier.epochs=30
 ```
@@ -316,6 +317,12 @@ filtered overlay images.
 | `freeze_encoder`             | `false`      | Freeze backbone, train only classification head         |
 | `pretrained`                 | `true`       | Use ImageNet-pretrained weights                         |
 | `use_mlp_head`               | `false`      | Use MLP head: `Linear(in,128)->ReLU->Linear(128,32)->ReLU->Linear(32,8)->ReLU->Linear(8,1)` |
+| `use_efficient_probing`      | `false`      | Use efficient probing head on patch tokens (timm ViT encoders only; mutually exclusive with `use_mlp_head`) |
+| `efficient_probing.num_queries` | `32`      | Number of learnable query tokens for efficient probing  |
+| `efficient_probing.num_heads`   | `1`       | Number of attention heads in efficient probing          |
+| `efficient_probing.d_out`       | `1`       | Channel reduction factor (`C' = C / d_out`)            |
+| `efficient_probing.qkv_bias`    | `false`   | Enable bias in efficient probing value projection       |
+| `efficient_probing.qk_scale`    | `null`    | Optional custom QK scale (default uses head dim scaling) |
 | `epochs`                     | `50`         | Maximum training epochs                                 |
 | `batch_size`                 | `32`         | Training batch size                                     |
 | `learning_rate`              | `0.001`      | Adam learning rate                                      |
@@ -480,19 +487,20 @@ search root you can set in the UI.
    sample as accepted-good, accepted-bad, or rejected.
 5. Color points by true label, predicted label, accepted/rejected status, or
    confusion class (`TP`, `TN`, `FP`, `FN`, `REJECT`).
-6. Click points to preview the exact crop image and metadata.
+6. Click points (or select top uncertain points) to preview exact crop images
+   and metadata in the side panel.
 7. Export selected points as CSV.
 
 ### Notes
 
 - Features and embeddings are computed on the fly from the currently selected
   model/split/settings.
+- For efficient-probing checkpoints (`use_efficient_probing=true`), embeddings
+  are built from probe output features (`x_cls`) before the final binary layer.
 - By default, recomputation is manual (`Run / Refresh`) to avoid repeated heavy
   reruns while changing controls; you can enable auto-recompute in the sidebar.
 - If `umap-learn` is unavailable, the UI disables UMAP and keeps PCA/t-SNE
   available.
-- Click-to-preview is optional/experimental and uses
-  `streamlit-plotly-events` (included in `.[streamlit]`).
 
 ## License
 

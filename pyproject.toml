@@ -40,7 +40,6 @@ streamlit = [
     "streamlit",
     "plotly",
     "umap-learn",
-    "streamlit-plotly-events",
 ]
 
 [project.scripts]
