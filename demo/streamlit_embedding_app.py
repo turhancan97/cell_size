@@ -31,11 +31,6 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     umap = None
 
-try:
-    from streamlit_plotly_events import plotly_events
-except Exception:  # pragma: no cover - optional dependency
-    plotly_events = None
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
@@ -43,7 +38,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from cell_size.classifier.dataset import IMAGENET_MEAN, IMAGENET_STD  # noqa: E402
-from cell_size.classifier.models import build_model, get_classifier_module  # noqa: E402
+from cell_size.classifier.models import EfficientProbingViTClassifier, build_model, get_classifier_module  # noqa: E402
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
@@ -103,6 +98,16 @@ def discover_checkpoints(search_root: str) -> list[str]:
     return [str(p.resolve()) for p in found]
 
 
+def format_checkpoint_display(checkpoint_path: str, search_root: str) -> str:
+    """Show checkpoint paths relative to the selected search root in UI."""
+    ckpt = Path(checkpoint_path).expanduser().resolve()
+    root = Path(search_root).expanduser().resolve()
+    try:
+        return ckpt.relative_to(root).as_posix()
+    except ValueError:
+        return ckpt.name
+
+
 @st.cache_data(show_spinner=False)
 def dataset_signature(split_dir_str: str) -> dict[str, Any]:
     split_dir = Path(split_dir_str)
@@ -139,6 +144,8 @@ def load_checkpoint_model(checkpoint_path: Path, device: torch.device) -> tuple[
         pretrained=False,
         freeze_encoder=False,
         use_mlp_head=bool(ckpt.get("use_mlp_head", False)),
+        use_efficient_probing=bool(ckpt.get("use_efficient_probing", False)),
+        efficient_probing_cfg=dict(ckpt.get("efficient_probing", {})),
     )
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
@@ -192,21 +199,13 @@ def compute_features_and_logits(
     target_batches: list[np.ndarray] = []
     path_list: list[str] = []
 
-    head = get_head_module(model, encoder)
-    cache: dict[str, torch.Tensor] = {}
-
-    def _hook(_module, inputs, _output):
-        cache["features"] = inputs[0].detach().cpu()
-
-    handle = head.register_forward_hook(_hook)
-    try:
+    if isinstance(model, EfficientProbingViTClassifier):
         with torch.no_grad():
             for images, targets, paths, _ in loader:
-                logits = model(images.to(device)).squeeze(1).cpu().numpy()
-                feats_tensor = cache.get("features")
-                if feats_tensor is None:
-                    raise RuntimeError("Failed to capture penultimate features from model hook.")
-                feats = feats_tensor.numpy()
+                images_dev = images.to(device)
+                probe_feats = model.extract_probe_features(images_dev)
+                feats = probe_feats.cpu().numpy()
+                logits = model.classifier(probe_feats).squeeze(1).cpu().numpy()
                 if feats.ndim > 2:
                     feats = feats.reshape(feats.shape[0], -1)
 
@@ -214,11 +213,35 @@ def compute_features_and_logits(
                 feature_batches.append(feats)
                 target_batches.append(targets.numpy())
                 path_list.extend([str(p) for p in paths])
-    finally:
-        handle.remove()
-        del model
-        if device.type == "cuda":
-            torch.cuda.empty_cache()
+    else:
+        head = get_head_module(model, encoder)
+        cache: dict[str, torch.Tensor] = {}
+
+        def _hook(_module, inputs, _output):
+            cache["features"] = inputs[0].detach().cpu()
+
+        handle = head.register_forward_hook(_hook)
+        try:
+            with torch.no_grad():
+                for images, targets, paths, _ in loader:
+                    logits = model(images.to(device)).squeeze(1).cpu().numpy()
+                    feats_tensor = cache.get("features")
+                    if feats_tensor is None:
+                        raise RuntimeError("Failed to capture penultimate features from model hook.")
+                    feats = feats_tensor.numpy()
+                    if feats.ndim > 2:
+                        feats = feats.reshape(feats.shape[0], -1)
+
+                    logit_batches.append(logits)
+                    feature_batches.append(feats)
+                    target_batches.append(targets.numpy())
+                    path_list.extend([str(p) for p in paths])
+        finally:
+            handle.remove()
+
+    del model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
 
     logits_all = np.concatenate(logit_batches, axis=0)
     features_all = np.concatenate(feature_batches, axis=0)
@@ -243,6 +266,8 @@ def compute_features_and_logits(
     meta = {
         "encoder": encoder,
         "use_mlp_head": bool(ckpt.get("use_mlp_head", False)),
+        "use_efficient_probing": bool(ckpt.get("use_efficient_probing", False)),
+        "efficient_probing": dict(ckpt.get("efficient_probing", {})),
         "crop_size": crop_size,
         "checkpoint": str(checkpoint_path),
         "mask_mode": mask_mode,
@@ -418,18 +443,8 @@ def build_plot(
     }
 
     common_kwargs = {
-        "data_frame": df,
         "color": color_col,
         "color_discrete_map": color_maps.get(color_col, None),
-        "hover_data": {
-            "path": True,
-            "true_label": True,
-            "pred_label": True,
-            "accepted_label": True,
-            "p_good": ":.4f",
-            "accepted": True,
-            "row_id": True,
-        },
         "custom_data": [
             "row_id",
             "path",
@@ -443,14 +458,40 @@ def build_plot(
     }
 
     if viz_dims == 3:
-        fig = px.scatter_3d(x="emb_1", y="emb_2", z="emb_3", **common_kwargs)
+        fig = px.scatter_3d(df, x="emb_1", y="emb_2", z="emb_3", **common_kwargs)
         fig.update_traces(marker={"size": 4, "opacity": 0.85})
     else:
-        fig = px.scatter(x="emb_1", y="emb_2", **common_kwargs)
+        fig = px.scatter(df, x="emb_1", y="emb_2", **common_kwargs)
         fig.update_traces(marker={"size": 7, "opacity": 0.85})
 
-    fig.update_layout(height=760, legend_title_text=color_col)
+    # Keep metadata out of cursor tooltip; details are shown in the fixed side panel.
+    fig.update_traces(hoverinfo="skip")
+    fig.update_layout(height=760, legend_title_text=color_col, clickmode="event+select")
     return fig
+
+
+def extract_selected_row_ids(plot_event: Any) -> list[int]:
+    """Extract selected row IDs from Streamlit plotly selection payload."""
+    if plot_event is None:
+        return []
+
+    points: list[dict[str, Any]] = []
+    if isinstance(plot_event, dict):
+        points = list(plot_event.get("selection", {}).get("points", []) or [])
+    else:
+        selection = getattr(plot_event, "selection", None)
+        if selection is not None:
+            points = list(getattr(selection, "points", []) or [])
+
+    out: list[int] = []
+    for point in points:
+        custom = point.get("customdata", [])
+        if isinstance(custom, (list, tuple)) and len(custom) > 0:
+            try:
+                out.append(int(custom[0]))
+            except Exception:
+                continue
+    return out
 
 
 def main() -> None:
@@ -491,7 +532,11 @@ def main() -> None:
         if not checkpoint_candidates:
             st.error(f"No `best_model.pt` found under {ckpt_search_root_raw}")
             st.stop()
-        checkpoint = st.selectbox("Checkpoint", checkpoint_candidates)
+        checkpoint = st.selectbox(
+            "Checkpoint",
+            checkpoint_candidates,
+            format_func=lambda p: format_checkpoint_display(p, ckpt_search_root_raw),
+        )
 
         st.header("Embedding Method")
         methods = ["PCA", "t-SNE"]
@@ -532,11 +577,6 @@ def main() -> None:
             "Color by",
             options=["True label", "Predicted label", "Accepted/Rejected", "Confusion class"],
             index=0,
-        )
-        enable_click_preview = st.checkbox(
-            "Enable click-to-preview (experimental)",
-            value=False,
-            help="Uses streamlit-plotly-events; disable if instability appears.",
         )
         auto_recompute = st.checkbox(
             "Auto recompute on every control change",
@@ -683,6 +723,8 @@ def main() -> None:
             "checkpoint": checkpoint,
             "encoder": model_meta["encoder"],
             "use_mlp_head": model_meta.get("use_mlp_head", False),
+            "use_efficient_probing": model_meta.get("use_efficient_probing", False),
+            "efficient_probing": model_meta.get("efficient_probing", {}),
             "crop_size": model_meta["crop_size"],
             "split_dir": str(split_dir),
             "mask_mode": mask_mode,
@@ -704,33 +746,25 @@ def main() -> None:
     fig = build_plot(plot_df, viz_dims=viz_dims, color_mode=color_mode)
 
     st.subheader("Embedding Plot")
-    click_points: list[dict[str, Any]] = []
-    if enable_click_preview and plotly_events is not None:
-        try:
-            click_points = plotly_events(fig, click_event=True, select_event=False, key="embedding_plot")
-        except Exception as exc:
-            st.warning(f"Click-to-preview disabled due to plugin error: {exc}")
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        if enable_click_preview and plotly_events is None:
-            st.warning("Click-to-preview unavailable: install `streamlit-plotly-events`.")
-        st.plotly_chart(fig, use_container_width=True)
+    plot_event: Any | None = None
+    try:
+        plot_event = st.plotly_chart(
+            fig,
+            use_container_width=True,
+            key="embedding_plot",
+            on_select="rerun",
+            selection_mode=("points",),
+        )
+    except TypeError:
+        st.plotly_chart(fig, use_container_width=True, key="embedding_plot")
+        st.info("Point-click selection is unavailable in this Streamlit version. Use `Select Top Uncertain`.")
 
     if "selected_row_ids" not in st.session_state:
         st.session_state.selected_row_ids = []
 
-    if click_points:
-        point = click_points[-1]
-        custom = point.get("customdata", [])
-        row_id = None
-        if isinstance(custom, (list, tuple)) and len(custom) > 0:
-            row_id = custom[0]
-        elif "pointIndex" in point:
-            row_id = point["pointIndex"]
-        if row_id is not None:
-            row_id = int(row_id)
-            if row_id not in st.session_state.selected_row_ids:
-                st.session_state.selected_row_ids.append(row_id)
+    clicked_ids = extract_selected_row_ids(plot_event)
+    if clicked_ids:
+        st.session_state.selected_row_ids = sorted(set(clicked_ids))
 
     valid_ids = set(plot_df["row_id"].astype(int).tolist())
     st.session_state.selected_row_ids = [x for x in st.session_state.selected_row_ids if x in valid_ids]
@@ -750,7 +784,7 @@ def main() -> None:
     with left:
         st.subheader("Selected Image Preview")
         if selected_df.empty:
-            st.info("Click a point on the plot to preview its crop image.")
+            st.info("Click points in the plot, or use `Select Top Uncertain`.")
         else:
             last_row_id = st.session_state.selected_row_ids[-1]
             row = viz_df[viz_df["row_id"] == last_row_id].iloc[0]

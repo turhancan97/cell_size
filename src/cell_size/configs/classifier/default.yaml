@@ -10,13 +10,20 @@ seed: 42 # 8 | 42 | 100
 encoder: "timm/vit_small_patch16_dinov3.lvd1689m"          # resnet18 | resnet50 | vit_b_16 | efficientnet_b0 | squeezenet1_1 | timm/<model_name> (e.g. timm/vit_small_patch16_dinov3.lvd1689m)
 freeze_encoder: true
 pretrained: true
-use_mlp_head: true          # if true: Linear(in,128)->ReLU->Linear(128,32)->ReLU->Linear(32,8)->ReLU->Linear(8,1)
+use_mlp_head: false           # if true: Linear(in,128)->ReLU->Linear(128,32)->ReLU->Linear(32,8)->ReLU->Linear(8,1)
+use_efficient_probing: false # timm ViT only; mutually exclusive with use_mlp_head
+efficient_probing:
+  num_queries: 4
+  num_heads: 1
+  d_out: 1
+  qkv_bias: false
+  qk_scale: null
 
 epochs: 100
 batch_size: 64
-learning_rate: 0.001
-weight_decay: 0.0001
-early_stopping_patience: 25
+learning_rate: 0.0001
+weight_decay: 0.00001
+early_stopping_patience: 250
 
 confidence_threshold: 0.7    # cells below this -> flagged for review
 gpu: true

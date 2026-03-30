@@ -91,6 +91,8 @@ def load_checkpoint(checkpoint_path: str | Path, device: torch.device) -> tuple[
         pretrained=False,
         freeze_encoder=False,
         use_mlp_head=bool(ckpt.get("use_mlp_head", False)),
+        use_efficient_probing=bool(ckpt.get("use_efficient_probing", False)),
+        efficient_probing_cfg=dict(ckpt.get("efficient_probing", {})),
     )
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)

@@ -68,6 +68,26 @@ def _compute_pos_weight(dataset: ImageFolder) -> torch.Tensor:
     return torch.tensor([weight], dtype=torch.float32)
 
 
+def _resolve_model_head_options(cfg: Any) -> tuple[bool, bool, dict[str, Any]]:
+    """Resolve head configuration flags from classifier config."""
+    use_mlp_head = bool(getattr(cfg, "use_mlp_head", False))
+    use_efficient_probing = bool(getattr(cfg, "use_efficient_probing", False))
+    probing_cfg = getattr(cfg, "efficient_probing", None)
+    if probing_cfg is None:
+        probing_dict: dict[str, Any] = {}
+    else:
+        probing_dict = {
+            "num_queries": int(getattr(probing_cfg, "num_queries", 32)),
+            "num_heads": int(getattr(probing_cfg, "num_heads", 1)),
+            "d_out": int(getattr(probing_cfg, "d_out", 1)),
+            "qkv_bias": bool(getattr(probing_cfg, "qkv_bias", False)),
+            "qk_scale": getattr(probing_cfg, "qk_scale", None),
+        }
+        if probing_dict["qk_scale"] is not None:
+            probing_dict["qk_scale"] = float(probing_dict["qk_scale"])
+    return use_mlp_head, use_efficient_probing, probing_dict
+
+
 def _run_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -152,8 +172,15 @@ def _train_standard(
     good_idx = train_ds.class_to_idx.get("good", 1)
     pos_weight = _compute_pos_weight(train_ds).to(device)
 
-    use_mlp_head = bool(getattr(cfg, "use_mlp_head", False))
-    model = build_model(cfg.encoder, cfg.pretrained, cfg.freeze_encoder, use_mlp_head=use_mlp_head).to(device)
+    use_mlp_head, use_efficient_probing, efficient_probing_cfg = _resolve_model_head_options(cfg)
+    model = build_model(
+        cfg.encoder,
+        cfg.pretrained,
+        cfg.freeze_encoder,
+        use_mlp_head=use_mlp_head,
+        use_efficient_probing=use_efficient_probing,
+        efficient_probing_cfg=efficient_probing_cfg,
+    ).to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -220,6 +247,8 @@ def _train_standard(
                 "model_state_dict": model.state_dict(),
                 "encoder": cfg.encoder,
                 "use_mlp_head": use_mlp_head,
+                "use_efficient_probing": use_efficient_probing,
+                "efficient_probing": efficient_probing_cfg,
                 "val_f1": best_val_f1,
                 "class_to_idx": train_ds.class_to_idx,
                 "crop_size": crop_size,
@@ -289,7 +318,7 @@ def _train_kfold(
     fold_f1s: list[float] = []
     best_fold_f1 = 0.0
     best_checkpoint = output_dir / "best_model.pt"
-    use_mlp_head = bool(getattr(cfg, "use_mlp_head", False))
+    use_mlp_head, use_efficient_probing, efficient_probing_cfg = _resolve_model_head_options(cfg)
 
     epoch_rows: list[dict[str, Any]] = []
 
@@ -313,6 +342,8 @@ def _train_kfold(
             cfg.pretrained,
             cfg.freeze_encoder,
             use_mlp_head=use_mlp_head,
+            use_efficient_probing=use_efficient_probing,
+            efficient_probing_cfg=efficient_probing_cfg,
         ).to(device)
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         optimizer = torch.optim.Adam(
@@ -364,6 +395,8 @@ def _train_kfold(
                         "model_state_dict": model.state_dict(),
                         "encoder": cfg.encoder,
                         "use_mlp_head": use_mlp_head,
+                        "use_efficient_probing": use_efficient_probing,
+                        "efficient_probing": efficient_probing_cfg,
                         "val_f1": best_fold_f1,
                         "class_to_idx": full_ds.class_to_idx,
                         "crop_size": crop_size,
@@ -419,6 +452,8 @@ def _train_kfold(
             cfg.pretrained,
             False,
             use_mlp_head=bool(ckpt.get("use_mlp_head", use_mlp_head)),
+            use_efficient_probing=bool(ckpt.get("use_efficient_probing", use_efficient_probing)),
+            efficient_probing_cfg=dict(ckpt.get("efficient_probing", efficient_probing_cfg)),
         ).to(device)
         model.load_state_dict(ckpt["model_state_dict"])
         pos_weight = _compute_pos_weight(full_ds).to(device)
@@ -474,7 +509,12 @@ def _make_run_name(cfg: Any) -> str:
     encoder = cfg.encoder
     lr = float(cfg.learning_rate)
     frozen = "frozen" if cfg.freeze_encoder else "finetune"
-    head = "mlphead" if bool(getattr(cfg, "use_mlp_head", False)) else "linearhead"
+    if bool(getattr(cfg, "use_efficient_probing", False)):
+        head = "effprobe"
+    elif bool(getattr(cfg, "use_mlp_head", False)):
+        head = "mlphead"
+    else:
+        head = "linearhead"
     bs = int(cfg.batch_size)
     ts = datetime.now().strftime("%m%d-%H%M")
     return f"{encoder}_{frozen}_{head}_lr{lr}_bs{bs}_{ts}"
@@ -499,6 +539,14 @@ def _init_wandb(cfg: Any) -> None:
                 "learning_rate": cfg.learning_rate,
                 "freeze_encoder": cfg.freeze_encoder,
                 "use_mlp_head": bool(getattr(cfg, "use_mlp_head", False)),
+                "use_efficient_probing": bool(getattr(cfg, "use_efficient_probing", False)),
+                "efficient_probing": {
+                    "num_queries": int(getattr(cfg.efficient_probing, "num_queries", 32)),
+                    "num_heads": int(getattr(cfg.efficient_probing, "num_heads", 1)),
+                    "d_out": int(getattr(cfg.efficient_probing, "d_out", 1)),
+                    "qkv_bias": bool(getattr(cfg.efficient_probing, "qkv_bias", False)),
+                    "qk_scale": getattr(cfg.efficient_probing, "qk_scale", None),
+                } if hasattr(cfg, "efficient_probing") else None,
             },
         )
         logger.info("WandB run initialised: %s", _wandb_run.url)
