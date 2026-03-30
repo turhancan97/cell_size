@@ -20,6 +20,7 @@ dependencies = [
     "scikit-image",
     "torch",
     "torchvision",
+    "timm",
     "scikit-learn",
     "tqdm",
 ]
@@ -35,12 +36,19 @@ logging = [
 demo = [
     "gradio",
 ]
+streamlit = [
+    "streamlit",
+    "plotly",
+    "umap-learn",
+    "streamlit-plotly-events",
+]
 
 [project.scripts]
 cell-size = "cell_size.main:main"
 cell-size-train = "cell_size.train_main:main"
 cell-size-classify = "cell_size.classify_main:main"
 cell-size-demo = "cell_size.demo_launcher:main"
+cell-size-streamlit = "cell_size.streamlit_launcher:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

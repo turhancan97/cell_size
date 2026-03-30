@@ -152,7 +152,8 @@ def _train_standard(
     good_idx = train_ds.class_to_idx.get("good", 1)
     pos_weight = _compute_pos_weight(train_ds).to(device)
 
-    model = build_model(cfg.encoder, cfg.pretrained, cfg.freeze_encoder).to(device)
+    use_mlp_head = bool(getattr(cfg, "use_mlp_head", False))
+    model = build_model(cfg.encoder, cfg.pretrained, cfg.freeze_encoder, use_mlp_head=use_mlp_head).to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -218,6 +219,7 @@ def _train_standard(
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "encoder": cfg.encoder,
+                "use_mlp_head": use_mlp_head,
                 "val_f1": best_val_f1,
                 "class_to_idx": train_ds.class_to_idx,
                 "crop_size": crop_size,
@@ -287,6 +289,7 @@ def _train_kfold(
     fold_f1s: list[float] = []
     best_fold_f1 = 0.0
     best_checkpoint = output_dir / "best_model.pt"
+    use_mlp_head = bool(getattr(cfg, "use_mlp_head", False))
 
     epoch_rows: list[dict[str, Any]] = []
 
@@ -305,7 +308,12 @@ def _train_kfold(
         n_neg = len(train_idx) - n_pos
         pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32).to(device)
 
-        model = build_model(cfg.encoder, cfg.pretrained, cfg.freeze_encoder).to(device)
+        model = build_model(
+            cfg.encoder,
+            cfg.pretrained,
+            cfg.freeze_encoder,
+            use_mlp_head=use_mlp_head,
+        ).to(device)
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
@@ -355,6 +363,7 @@ def _train_kfold(
                         "fold": fold,
                         "model_state_dict": model.state_dict(),
                         "encoder": cfg.encoder,
+                        "use_mlp_head": use_mlp_head,
                         "val_f1": best_fold_f1,
                         "class_to_idx": full_ds.class_to_idx,
                         "crop_size": crop_size,
@@ -405,7 +414,12 @@ def _train_kfold(
     test_dir = crops_dir / "test"
     if test_dir.is_dir() and best_checkpoint.is_file():
         ckpt = torch.load(str(best_checkpoint), weights_only=False)
-        model = build_model(cfg.encoder, cfg.pretrained, False).to(device)
+        model = build_model(
+            str(ckpt["encoder"]),
+            cfg.pretrained,
+            False,
+            use_mlp_head=bool(ckpt.get("use_mlp_head", use_mlp_head)),
+        ).to(device)
         model.load_state_dict(ckpt["model_state_dict"])
         pos_weight = _compute_pos_weight(full_ds).to(device)
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -460,9 +474,10 @@ def _make_run_name(cfg: Any) -> str:
     encoder = cfg.encoder
     lr = float(cfg.learning_rate)
     frozen = "frozen" if cfg.freeze_encoder else "finetune"
+    head = "mlphead" if bool(getattr(cfg, "use_mlp_head", False)) else "linearhead"
     bs = int(cfg.batch_size)
     ts = datetime.now().strftime("%m%d-%H%M")
-    return f"{encoder}_{frozen}_lr{lr}_bs{bs}_{ts}"
+    return f"{encoder}_{frozen}_{head}_lr{lr}_bs{bs}_{ts}"
 
 
 def _init_wandb(cfg: Any) -> None:
@@ -483,6 +498,7 @@ def _init_wandb(cfg: Any) -> None:
                 "batch_size": cfg.batch_size,
                 "learning_rate": cfg.learning_rate,
                 "freeze_encoder": cfg.freeze_encoder,
+                "use_mlp_head": bool(getattr(cfg, "use_mlp_head", False)),
             },
         )
         logger.info("WandB run initialised: %s", _wandb_run.url)

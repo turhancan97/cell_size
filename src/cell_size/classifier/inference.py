@@ -90,6 +90,7 @@ def load_checkpoint(checkpoint_path: str | Path, device: torch.device) -> tuple[
         encoder=ckpt["encoder"],
         pretrained=False,
         freeze_encoder=False,
+        use_mlp_head=bool(ckpt.get("use_mlp_head", False)),
     )
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)

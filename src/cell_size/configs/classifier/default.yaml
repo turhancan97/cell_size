@@ -7,21 +7,22 @@ crops_dir: "crops"           # output directory for extracted crops
 split_ratio: [0.70, 0.15, 0.15]
 seed: 42 # 8 | 42 | 100
 
-encoder: "resnet18"          # resnet18 | resnet50 | vit_b_16 | efficientnet_b0
+encoder: "timm/vit_small_patch16_dinov3.lvd1689m"          # resnet18 | resnet50 | vit_b_16 | efficientnet_b0 | squeezenet1_1 | timm/<model_name> (e.g. timm/vit_small_patch16_dinov3.lvd1689m)
 freeze_encoder: true
 pretrained: true
+use_mlp_head: true          # if true: Linear(in,128)->ReLU->Linear(128,32)->ReLU->Linear(32,8)->ReLU->Linear(8,1)
 
-epochs: 10
-batch_size: 32
+epochs: 100
+batch_size: 64
 learning_rate: 0.001
 weight_decay: 0.0001
-early_stopping_patience: 7
+early_stopping_patience: 25
 
 confidence_threshold: 0.7    # cells below this -> flagged for review
 gpu: true
 
 wandb:
-  enabled: true
+  enabled: false
   project: "cell-quality"
   run_name: null
   n_samples: 16            # sample images logged to WandB per epoch (half good, half bad)
