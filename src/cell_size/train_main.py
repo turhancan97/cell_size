@@ -84,6 +84,11 @@ def main(cfg: DictConfig) -> None:
         split_dataset(crops_dir, split_ratio, seed)
 
     logger.info("Step 4/5: Training classifier")
+    if bool(getattr(cfg.classifier, "train_with_val", False)):
+        logger.warning(
+            "Final-fit mode is ON (`classifier.train_with_val=true`): "
+            "training uses train+val and early stopping/model selection monitor the test split."
+        )
     import datetime as dt  # noqa: PLC0415
 
     started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")

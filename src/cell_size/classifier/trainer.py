@@ -18,7 +18,7 @@ from sklearn.metrics import (
     recall_score,
 )
 from sklearn.model_selection import StratifiedKFold
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import ConcatDataset, DataLoader, Subset
 from tqdm.auto import tqdm
 from torchvision.datasets import ImageFolder
 
@@ -59,8 +59,13 @@ def _compute_pos_weight(dataset: ImageFolder) -> torch.Tensor:
     ImageFolder sorts classes alphabetically, so typically bad=0, good=1.
     ``pos_weight = n_negative / n_positive``.
     """
-    targets = np.array(dataset.targets)
     good_idx = dataset.class_to_idx.get("good", 1)
+    targets = np.array(dataset.targets)
+    return _compute_pos_weight_from_targets(targets, good_idx)
+
+
+def _compute_pos_weight_from_targets(targets: np.ndarray, good_idx: int) -> torch.Tensor:
+    """Compute pos_weight from a binary target source and good-class index."""
     n_pos = (targets == good_idx).sum()
     n_neg = len(targets) - n_pos
     weight = n_neg / max(n_pos, 1)
@@ -149,8 +154,15 @@ def train(
     crop_size = int(cfg.crop_size)
     device = torch.device("cuda" if cfg.gpu and torch.cuda.is_available() else "cpu")
     logger.info("Training device: %s", device)
+    train_with_val = bool(getattr(cfg, "train_with_val", False))
 
     _init_wandb(cfg)
+
+    if cfg.cross_validation.enabled and train_with_val:
+        raise ValueError(
+            "`classifier.train_with_val=true` is incompatible with cross-validation. "
+            "Disable one of them."
+        )
 
     if cfg.cross_validation.enabled:
         return _train_kfold(crops_dir, output_dir, cfg, device, crop_size)
@@ -166,11 +178,63 @@ def _train_standard(
     crop_size: int,
 ) -> TrainResult:
     """Standard train/val/test training."""
-    train_ds = build_dataset(crops_dir, "train", crop_size)
-    val_ds = build_dataset(crops_dir, "val", crop_size)
+    train_with_val = bool(getattr(cfg, "train_with_val", False))
+    monitor_split = "val"
 
-    good_idx = train_ds.class_to_idx.get("good", 1)
-    pos_weight = _compute_pos_weight(train_ds).to(device)
+    if train_with_val:
+        test_dir = crops_dir / "test"
+        if not test_dir.is_dir():
+            raise FileNotFoundError(
+                "classifier.train_with_val=true requires a test split for monitoring/evaluation, "
+                f"but directory was not found: {test_dir}"
+            )
+
+        logger.warning(
+            "Final-fit mode enabled (`classifier.train_with_val=true`): "
+            "training on train+val and monitoring on test."
+        )
+
+        train_base_ds = ImageFolder(
+            str(crops_dir / "train"),
+            transform=get_train_transforms(crop_size),
+        )
+        val_as_train_ds = ImageFolder(
+            str(crops_dir / "val"),
+            transform=get_train_transforms(crop_size),
+        )
+        if train_base_ds.class_to_idx != val_as_train_ds.class_to_idx:
+            raise ValueError(
+                "Class mapping mismatch between train and val splits: "
+                f"{train_base_ds.class_to_idx} vs {val_as_train_ds.class_to_idx}"
+            )
+
+        monitor_ds = build_dataset(crops_dir, "test", crop_size)
+        if train_base_ds.class_to_idx != monitor_ds.class_to_idx:
+            raise ValueError(
+                "Class mapping mismatch between train and test splits: "
+                f"{train_base_ds.class_to_idx} vs {monitor_ds.class_to_idx}"
+            )
+
+        train_ds = ConcatDataset([train_base_ds, val_as_train_ds])
+        good_idx = int(train_base_ds.class_to_idx.get("good", 1))
+        combined_targets = np.array(train_base_ds.targets + val_as_train_ds.targets)
+        pos_weight = _compute_pos_weight_from_targets(combined_targets, good_idx).to(device)
+        class_to_idx = dict(train_base_ds.class_to_idx)
+        monitor_split = "test"
+
+        logger.info(
+            "Final-fit mode dataset sizes: train=%d + val=%d -> train_total=%d, monitor(test)=%d",
+            len(train_base_ds),
+            len(val_as_train_ds),
+            len(train_ds),
+            len(monitor_ds),
+        )
+    else:
+        train_ds = build_dataset(crops_dir, "train", crop_size)
+        monitor_ds = build_dataset(crops_dir, "val", crop_size)
+        good_idx = train_ds.class_to_idx.get("good", 1)
+        pos_weight = _compute_pos_weight(train_ds).to(device)
+        class_to_idx = dict(train_ds.class_to_idx)
 
     use_mlp_head, use_efficient_probing, efficient_probing_cfg = _resolve_model_head_options(cfg)
     model = build_model(
@@ -192,7 +256,7 @@ def _train_standard(
         train_ds, batch_size=int(cfg.batch_size), shuffle=True, num_workers=4, pin_memory=True,
     )
     val_loader = DataLoader(
-        val_ds, batch_size=int(cfg.batch_size), shuffle=False, num_workers=4, pin_memory=True,
+        monitor_ds, batch_size=int(cfg.batch_size), shuffle=False, num_workers=4, pin_memory=True,
     )
 
     best_val_f1 = 0.0
@@ -202,7 +266,7 @@ def _train_standard(
 
     n_samples = int(cfg.wandb.n_samples) if cfg.wandb.enabled else 0
     sample_indices = (
-        _select_fixed_samples(val_ds, n_samples, good_idx, int(cfg.seed))
+        _select_fixed_samples(monitor_ds, n_samples, good_idx, int(cfg.seed))
         if n_samples > 0
         else []
     )
@@ -215,6 +279,7 @@ def _train_standard(
 
         epoch_rows.append({
             "epoch": epoch,
+            "monitor_split": monitor_split,
             "train_loss": train_m.loss,
             "train_accuracy": train_m.accuracy,
             "train_precision": train_m.precision,
@@ -228,16 +293,18 @@ def _train_standard(
         })
 
         logger.info(
-            "Epoch %d/%d  train_loss=%.4f train_f1=%.4f  val_loss=%.4f val_f1=%.4f",
+            "Epoch %d/%d  train_loss=%.4f train_f1=%.4f  monitor(%s)_loss=%.4f monitor(%s)_f1=%.4f",
             epoch,
             cfg.epochs,
             train_m.loss,
             train_m.f1,
+            monitor_split,
             val_m.loss,
+            monitor_split,
             val_m.f1,
         )
         _log_wandb(epoch, train_m, val_m)
-        _log_wandb_images(epoch, model, val_ds, sample_indices, device, good_idx)
+        _log_wandb_images(epoch, model, monitor_ds, sample_indices, device, good_idx)
 
         if val_m.f1 > best_val_f1:
             best_val_f1 = val_m.f1
@@ -249,11 +316,18 @@ def _train_standard(
                 "use_mlp_head": use_mlp_head,
                 "use_efficient_probing": use_efficient_probing,
                 "efficient_probing": efficient_probing_cfg,
+                "train_with_val": train_with_val,
+                "monitor_split": monitor_split,
                 "val_f1": best_val_f1,
-                "class_to_idx": train_ds.class_to_idx,
+                "class_to_idx": class_to_idx,
                 "crop_size": crop_size,
             }, str(checkpoint_path))
-            logger.info("Saved best model (val_f1=%.4f) -> %s", best_val_f1, checkpoint_path)
+            logger.info(
+                "Saved best model (monitor_split=%s, f1=%.4f) -> %s",
+                monitor_split,
+                best_val_f1,
+                checkpoint_path,
+            )
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -509,6 +583,7 @@ def _make_run_name(cfg: Any) -> str:
     encoder = cfg.encoder
     lr = float(cfg.learning_rate)
     frozen = "frozen" if cfg.freeze_encoder else "finetune"
+    fit_mode = "trval_testmon" if bool(getattr(cfg, "train_with_val", False)) else "train_val"
     if bool(getattr(cfg, "use_efficient_probing", False)):
         head = "effprobe"
     elif bool(getattr(cfg, "use_mlp_head", False)):
@@ -517,7 +592,7 @@ def _make_run_name(cfg: Any) -> str:
         head = "linearhead"
     bs = int(cfg.batch_size)
     ts = datetime.now().strftime("%m%d-%H%M")
-    return f"{encoder}_{frozen}_{head}_lr{lr}_bs{bs}_{ts}"
+    return f"{encoder}_{fit_mode}_{frozen}_{head}_lr{lr}_bs{bs}_{ts}"
 
 
 def _init_wandb(cfg: Any) -> None:
@@ -538,6 +613,7 @@ def _init_wandb(cfg: Any) -> None:
                 "batch_size": cfg.batch_size,
                 "learning_rate": cfg.learning_rate,
                 "freeze_encoder": cfg.freeze_encoder,
+                "train_with_val": bool(getattr(cfg, "train_with_val", False)),
                 "use_mlp_head": bool(getattr(cfg, "use_mlp_head", False)),
                 "use_efficient_probing": bool(getattr(cfg, "use_efficient_probing", False)),
                 "efficient_probing": {

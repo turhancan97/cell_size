@@ -267,7 +267,7 @@ DATA_DIR=/path/to/segmented/data \
 FEEDBACK_CSVS='["/path/to/feedback.csv"]' \
 OUTPUT_DIR=/path/to/output_dir \
 bash scripts/launch_classifier_train_parallel.sh --dry-run --max-concurrent 20 \
-  --encoders resnet18,'timm/vit_small_patch16_dinov3.lvd1689m' --freeze both --lrs 0.001,0.0005 --thresholds 0.7 --cv both \
+  --encoders resnet18,'timm/vit_small_patch16_dinov3.lvd1689m' --freeze both --train-with-val false --lrs 0.001,0.0005 --thresholds 0.7 --cv both \
   classifier.epochs=30 classifier.batch_size=64
 ```
 
@@ -316,6 +316,7 @@ filtered overlay images.
 | `encoder`                    | `"resnet18"` | Backbone: `resnet18`, `resnet50`, `vit_b_16`, `efficientnet_b0`, `squeezenet1_1`, or `timm/<model_name>` (e.g. `timm/vit_small_patch16_dinov3.lvd1689m`) |
 | `freeze_encoder`             | `false`      | Freeze backbone, train only classification head         |
 | `pretrained`                 | `true`       | Use ImageNet-pretrained weights                         |
+| `train_with_val`             | `false`      | Final-fit mode: train on `train+val`, and monitor/select checkpoint on `test` (incompatible with cross-validation) |
 | `use_mlp_head`               | `false`      | Use MLP head: `Linear(in,128)->ReLU->Linear(128,32)->ReLU->Linear(32,8)->ReLU->Linear(8,1)` |
 | `use_efficient_probing`      | `false`      | Use efficient probing head on patch tokens (timm ViT encoders only; mutually exclusive with `use_mlp_head`) |
 | `efficient_probing.num_queries` | `32`      | Number of learnable query tokens for efficient probing  |
