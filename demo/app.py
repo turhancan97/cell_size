@@ -95,6 +95,9 @@ def run_pipeline(
     niter: int,
     checkpoint_path: str,
     confidence_threshold: float,
+    selective_rejection_enabled: bool,
+    selective_t_bad: float,
+    selective_t_good: float,
     pixel_to_um: float | None,
     also_segment_nuclei: bool = True,
 ):
@@ -147,13 +150,27 @@ def run_pipeline(
     generate_overlay(img, masks, seg_overlay_path)
 
     # --- 4. Classify (if checkpoint provided) ---
-    preds_df = pd.DataFrame(columns=["mask_index", "predicted_verdict", "confidence"])
+    preds_df = pd.DataFrame(columns=["mask_index", "predicted_verdict", "confidence", "accepted"])
     filtered_overlay_img = None
     areas_df = pd.DataFrame()
     preds_csv_path = None
     areas_csv_path = None
 
     if checkpoint_path and Path(checkpoint_path).is_file() and n_cells > 0:
+        if selective_rejection_enabled and not (0.0 <= selective_t_bad < selective_t_good <= 1.0):
+            raise gr.Error(
+                "Invalid selective rejection thresholds. "
+                f"Require 0 <= t_bad < t_good <= 1, got t_bad={selective_t_bad}, t_good={selective_t_good}."
+            )
+        if selective_rejection_enabled:
+            logger.info(
+                "Demo selective rejection enabled: t_bad=%.3f, t_good=%.3f "
+                "(confidence_threshold=%.3f ignored)",
+                selective_t_bad,
+                selective_t_good,
+                confidence_threshold,
+            )
+
         model, ckpt = _get_classifier(checkpoint_path)
         crop_size = ckpt.get("crop_size", 224)
         transform = _build_inference_transform(crop_size)
@@ -165,13 +182,16 @@ def run_pipeline(
             model, crops, transform, _device,
             confidence_threshold=confidence_threshold,
             batch_size=32,
+            selective_rejection_enabled=selective_rejection_enabled,
+            selective_t_bad=selective_t_bad,
+            selective_t_good=selective_t_good,
         )
         preds_df = pd.DataFrame(preds)
 
         preds_csv_path = str(tmp_dir / "predictions.csv")
         preds_df.to_csv(preds_csv_path, index=False)
 
-        filt_overlay_path = tmp_dir / "filtered_overlay.png"
+        filt_overlay_path = tmp_dir / "filtered_overlay.jpg"
         generate_filtered_overlay(
             img, masks, preds_df, filt_overlay_path, nuc_masks=nuc_masks,
         )
@@ -184,7 +204,9 @@ def run_pipeline(
         areas_df.to_csv(areas_csv_path, index=False)
 
         n_good = (preds_df["predicted_verdict"] == "good").sum()
-        logger.info("Classification: %d good, %d bad", n_good, len(preds_df) - n_good)
+        n_bad = (preds_df["predicted_verdict"] == "bad").sum()
+        n_rejected = (preds_df["predicted_verdict"] == "rejected").sum()
+        logger.info("Classification: %d good, %d bad, %d rejected", n_good, n_bad, n_rejected)
     elif n_cells == 0:
         logger.warning("No cells segmented -- skipping classification.")
     else:
@@ -370,6 +392,19 @@ def build_app() -> gr.Blocks:
                     minimum=0.0, maximum=1.0, value=0.7, step=0.05,
                     label="Confidence threshold",
                 )
+                selective_rejection_enabled = gr.Checkbox(
+                    value=False,
+                    label="Enable selective rejection",
+                    info="When enabled: p<=t_bad => bad, p>=t_good => good, otherwise rejected.",
+                )
+                selective_t_bad = gr.Slider(
+                    minimum=0.0, maximum=1.0, value=0.09, step=0.01,
+                    label="Selective threshold t_bad",
+                )
+                selective_t_good = gr.Slider(
+                    minimum=0.0, maximum=1.0, value=0.51, step=0.01,
+                    label="Selective threshold t_good",
+                )
 
                 gr.Markdown("### Scale")
                 pixel_to_um = gr.Number(
@@ -387,13 +422,15 @@ def build_app() -> gr.Blocks:
                     with gr.Tab("Segmentation Overlay"):
                         seg_overlay_output = gr.Image(label="Segmentation overlay")
                     with gr.Tab("Filtered Overlay"):
-                        filt_overlay_output = gr.Image(label="Filtered overlay (good=colour, bad=grey)")
+                        filt_overlay_output = gr.Image(
+                            label="Filtered overlay (good=green, bad=orange, rejected=magenta)",
+                        )
 
                 with gr.Tabs():
                     with gr.Tab("All Predictions"):
                         preds_table = gr.Dataframe(
                             label="Per-cell predictions",
-                            headers=["mask_index", "predicted_verdict", "confidence"],
+                            headers=["mask_index", "predicted_verdict", "confidence", "accepted"],
                             interactive=False,
                         )
                     with gr.Tab("Filtered Areas (good cells)"):
@@ -427,6 +464,9 @@ def build_app() -> gr.Blocks:
                 niter,
                 checkpoint_path,
                 confidence_threshold,
+                selective_rejection_enabled,
+                selective_t_bad,
+                selective_t_good,
                 pixel_to_um,
                 also_segment_nuclei,
             ],

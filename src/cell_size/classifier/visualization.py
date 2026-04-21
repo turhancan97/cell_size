@@ -64,21 +64,22 @@ def generate_filtered_overlay(
     masks: np.ndarray,
     predictions_df: pd.DataFrame,
     output_path: str | Path,
-    fontsize: int = 8,
+    fontsize: int = 12,
     nuc_masks: np.ndarray | None = None,
 ) -> Path:
-    """Draw overlay where good cells are coloured and bad cells are greyed out.
+    """Draw overlay where good cells are coloured, bad cells greyed, rejected highlighted.
 
     ``predictions_df`` must have columns ``mask_index`` and ``predicted_verdict``.
 
     When *nuc_masks* is provided, nucleus boundaries are drawn as cyan
     outlines inside good cells.
     """
-    output_path = Path(output_path)
+    output_path = Path(output_path).with_suffix(".jpg")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     img_rgb = _to_display_rgb(img)
-    overlay = img_rgb.astype(np.float64) / 255.0
+    # Dim the base image so class overlays are visually dominant.
+    overlay = (img_rgb.astype(np.float64) / 255.0) * 0.75
 
     n_cells = int(masks.max())
     if n_cells == 0:
@@ -96,24 +97,37 @@ def generate_filtered_overlay(
             predictions_df["predicted_verdict"] == "good", "mask_index"
         ].astype(int)
     )
+    rejected_labels = set(
+        predictions_df.loc[
+            predictions_df["predicted_verdict"] == "rejected", "mask_index"
+        ].astype(int)
+    )
 
-    rng = np.random.RandomState(42)
-    colors = rng.rand(n_cells + 1, 3)
-    colors[0] = 0
+    # Fixed high-contrast, colorblind-friendly class palette.
+    good_fill = np.array([0, 158, 115], dtype=np.float64) / 255.0
+    bad_fill = np.array([213, 94, 0], dtype=np.float64) / 255.0
+    rejected_fill = np.array([204, 121, 167], dtype=np.float64) / 255.0
 
-    alpha_good = 0.4
-    alpha_bad = 0.15
-    grey = np.array([0.5, 0.5, 0.5])
+    good_outline = np.array([0, 109, 85], dtype=np.uint8)
+    bad_outline = np.array([140, 45, 4], dtype=np.uint8)
+    rejected_outline = np.array([122, 46, 94], dtype=np.uint8)
+
+    alpha_good = 0.45
+    alpha_bad = 0.45
+    alpha_rejected = 0.55
 
     for label in range(1, n_cells + 1):
         cell_mask = masks == label
         if not cell_mask.any():
             continue
         if label in good_labels:
-            colour = colors[label]
+            colour = good_fill
             alpha = alpha_good
+        elif label in rejected_labels:
+            colour = rejected_fill
+            alpha = alpha_rejected
         else:
-            colour = grey
+            colour = bad_fill
             alpha = alpha_bad
         overlay[cell_mask] = (1 - alpha) * overlay[cell_mask] + alpha * colour
 
@@ -124,9 +138,11 @@ def generate_filtered_overlay(
     for y, x in zip(out_y, out_x):
         label = masks[y, x]
         if label in good_labels:
-            result[y, x] = (0, 200, 0)
+            result[y, x] = good_outline
+        elif label in rejected_labels:
+            result[y, x] = rejected_outline
         else:
-            result[y, x] = (128, 128, 128)
+            result[y, x] = bad_outline
 
     # Draw nucleus boundaries inside good cells
     if nuc_masks is not None:
@@ -153,8 +169,12 @@ def generate_filtered_overlay(
         centroids.append((y_cent, x_cent, mask_label))
 
     n_good = len(good_labels)
-    n_bad = n_cells - n_good
-    title = f"Filtered overlay: {n_good} good (colour), {n_bad} bad (grey)"
+    n_rejected = len(rejected_labels)
+    n_bad = max(0, n_cells - n_good - n_rejected)
+    title = (
+        f"Filtered overlay: {n_good} good (green), {n_bad} bad (orange), "
+        f"{n_rejected} rejected (magenta)"
+    )
     if nuc_masks is not None:
         title += " | nucleus boundaries (cyan)"
     fig, ax = plt.subplots(figsize=(20, 15))
@@ -164,19 +184,20 @@ def generate_filtered_overlay(
 
     for y, x, label in centroids:
         is_good = label in good_labels
+        is_rejected = label in rejected_labels
         ax.text(
             x,
             y,
             str(label),
             fontsize=fontsize,
             fontweight="bold",
-            color="white" if is_good else "gray",
+            color="white",
             bbox=dict(
                 boxstyle="round,pad=0.3",
-                facecolor="darkgreen" if is_good else "dimgray",
-                alpha=0.7 if is_good else 0.4,
-                edgecolor="white" if is_good else "gray",
-                linewidth=1.5 if is_good else 0.5,
+                facecolor="#CC79A7" if is_rejected else ("#009E73" if is_good else "#D55E00"),
+                alpha=0.9,
+                edgecolor="#7A2E5E" if is_rejected else ("#006D55" if is_good else "#8C2D04"),
+                linewidth=1.8,
             ),
             ha="center",
             va="center",
@@ -186,5 +207,11 @@ def generate_filtered_overlay(
     plt.savefig(str(output_path), dpi=150, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
 
-    logger.info("Filtered overlay saved -> %s (%d good, %d bad)", output_path, n_good, n_bad)
+    logger.info(
+        "Filtered overlay saved -> %s (%d good, %d bad, %d rejected)",
+        output_path,
+        n_good,
+        n_bad,
+        n_rejected,
+    )
     return output_path

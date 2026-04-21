@@ -295,11 +295,14 @@ cell-size-classify \
     checkpoint=./classifier_output/best_model.pt \
     data_dir=/path/to/new/segmented/data \
     output_dir=./classify_output \
-    classifier.confidence_threshold=0.7
+    classifier.confidence_threshold=0.7 \
+    classifier.selective_rejection.enabled=true \
+    classifier.selective_rejection.t_bad=0.09 \
+    classifier.selective_rejection.t_good=0.51
 ```
 
 Pipeline: load model -> classify every cell in the dataset -> write
-predictions CSV -> compute filtered areas (good cells only) -> generate
+predictions CSV (`good`/`bad`/`rejected`) -> compute filtered areas (good cells only) -> generate
 filtered overlay images.
 
 ### Classifier Configuration (`src/cell_size/configs/classifier/default.yaml`)
@@ -329,7 +332,10 @@ filtered overlay images.
 | `learning_rate`              | `0.001`      | Adam learning rate                                      |
 | `weight_decay`               | `0.0001`     | Adam weight decay                                       |
 | `early_stopping_patience`    | `7`          | Epochs without improvement before stopping              |
-| `confidence_threshold`       | `0.7`        | Minimum confidence to label a cell as "good"            |
+| `confidence_threshold`       | `0.7`        | Minimum confidence to label a cell as "good" (ignored when `selective_rejection.enabled=true`) |
+| `selective_rejection.enabled`| `false`      | Enable selective rejection with `good`/`bad`/`rejected` outputs |
+| `selective_rejection.t_bad`  | `0.09`       | If `p_good <= t_bad`, verdict is `bad`                  |
+| `selective_rejection.t_good` | `0.51`       | If `p_good >= t_good`, verdict is `good`; otherwise `rejected` |
 | `gpu`                        | `true`       | Use GPU if available                                    |
 | `wandb.enabled`              | `false`      | Enable Weights & Biases logging                         |
 | `wandb.project`              | `"cell-quality"` | WandB project name                                  |
@@ -379,11 +385,11 @@ classifier_output/
   confusion_matrix.png    # test set confusion matrix
 
 classify_output/
-  predictions.csv         # per-cell predictions with confidence
+  predictions.csv         # per-cell predictions with confidence + accepted flag (verdict: good|bad|rejected)
   filtered_areas.csv      # areas + diameters + nucleus measurements for good cells
   overlays/
-    img001_filtered_overlay.png   # cell outlines + nucleus boundaries (cyan)
-    img002_filtered_overlay.png
+    img001_filtered_overlay.jpg   # good=green, bad=orange, rejected=magenta + nucleus boundaries (cyan)
+    img002_filtered_overlay.jpg
 ```
 
 ## Interactive Demo (Gradio)

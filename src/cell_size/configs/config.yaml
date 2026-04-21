@@ -2,7 +2,7 @@ defaults:
   - model: cpsam
   - data: default
   - output: default
-  - segmentation: membrane
+  - segmentation: membrane # membrane | nucleus
   - _self_
 
 cell_type: "Unknown"

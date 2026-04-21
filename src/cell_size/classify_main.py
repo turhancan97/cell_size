@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 @hydra.main(config_path="configs", config_name="classify", version_base="1.3")
 def main(cfg: DictConfig) -> None:
-    """Classify cells in a segmented dataset as good or bad.
+    """Classify cells in a segmented dataset as good, bad, or rejected.
 
     Pipeline: load model -> iterate images -> classify all cells ->
     write predictions CSV -> filtered areas -> filtered overlays.
@@ -50,7 +50,13 @@ def main(cfg: DictConfig) -> None:
 
     n_good = (predictions_df["predicted_verdict"] == "good").sum()
     n_bad = (predictions_df["predicted_verdict"] == "bad").sum()
-    logger.info("Inference complete: %d good, %d bad cells across all images", n_good, n_bad)
+    n_rejected = (predictions_df["predicted_verdict"] == "rejected").sum()
+    logger.info(
+        "Inference complete: %d good, %d bad, %d rejected cells across all images",
+        n_good,
+        n_bad,
+        n_rejected,
+    )
 
     if cfg.compute_filtered_areas:
         logger.info("Step 2/3: Computing filtered cell areas (good cells only)")
@@ -81,7 +87,7 @@ def main(cfg: DictConfig) -> None:
 
             nuc_mask = _load_nucleus_mask(img_path.parent, image_stem)
             img_rgb = _read_image_rgb(img_path)
-            overlay_path = overlays_dir / f"{image_stem}_filtered_overlay.png"
+            overlay_path = overlays_dir / f"{image_stem}_filtered_overlay.jpg"
             generate_filtered_overlay(
                 img_rgb, mask, img_preds, overlay_path, nuc_masks=nuc_mask,
             )

@@ -113,13 +113,22 @@ def classify_cells(
     device: torch.device,
     confidence_threshold: float = 0.7,
     batch_size: int = 32,
+    selective_rejection_enabled: bool = False,
+    selective_t_bad: float = 0.09,
+    selective_t_good: float = 0.51,
 ) -> list[dict]:
     """Classify a list of (label, crop_image) tuples.
 
-    Returns a list of dicts with keys: mask_index, predicted_verdict, confidence.
+    Returns a list of dicts with keys:
+    ``mask_index``, ``predicted_verdict``, ``confidence``, ``accepted``.
     """
     if not crops:
         return []
+    if selective_rejection_enabled and not (0.0 <= selective_t_bad < selective_t_good <= 1.0):
+        raise ValueError(
+            "Invalid selective rejection thresholds: require 0 <= t_bad < t_good <= 1; "
+            f"got t_bad={selective_t_bad}, t_good={selective_t_good}"
+        )
 
     results: list[dict] = []
     model.eval()
@@ -138,18 +147,45 @@ def classify_cells(
 
         for j, (label, _) in enumerate(batch_crops):
             prob = float(probs[j])
-            if prob >= confidence_threshold:
-                verdict = "good"
+            if selective_rejection_enabled:
+                if prob <= selective_t_bad:
+                    verdict = "bad"
+                    accepted = True
+                elif prob >= selective_t_good:
+                    verdict = "good"
+                    accepted = True
+                else:
+                    verdict = "rejected"
+                    accepted = False
             else:
-                verdict = "bad"
+                if prob >= confidence_threshold:
+                    verdict = "good"
+                else:
+                    verdict = "bad"
+                accepted = True
 
             results.append({
                 "mask_index": label,
                 "predicted_verdict": verdict,
                 "confidence": round(prob, 4),
+                "accepted": accepted,
             })
 
     return results
+
+
+def _resolve_selective_rejection_cfg(cfg: Any) -> tuple[bool, float, float]:
+    """Read and validate selective-rejection settings from classifier config."""
+    sel_cfg = getattr(cfg, "selective_rejection", None)
+    enabled = bool(getattr(sel_cfg, "enabled", False)) if sel_cfg is not None else False
+    t_bad = float(getattr(sel_cfg, "t_bad", 0.09)) if sel_cfg is not None else 0.09
+    t_good = float(getattr(sel_cfg, "t_good", 0.51)) if sel_cfg is not None else 0.51
+    if enabled and not (0.0 <= t_bad < t_good <= 1.0):
+        raise ValueError(
+            "Invalid classifier.selective_rejection thresholds: require 0 <= t_bad < t_good <= 1; "
+            f"got t_bad={t_bad}, t_good={t_good}"
+        )
+    return enabled, t_bad, t_good
 
 
 def run_inference(
@@ -171,9 +207,19 @@ def run_inference(
     transform = _build_inference_transform(crop_size)
 
     confidence_threshold = float(cfg.confidence_threshold)
+    selective_enabled, selective_t_bad, selective_t_good = _resolve_selective_rejection_cfg(cfg)
     padding_pct = float(cfg.crop_padding_pct)
     mask_bg = bool(cfg.mask_background)
     batch_size = int(cfg.batch_size)
+
+    if selective_enabled:
+        logger.info(
+            "Selective rejection enabled: t_bad=%.3f, t_good=%.3f "
+            "(classifier.confidence_threshold=%.3f is ignored)",
+            selective_t_bad,
+            selective_t_good,
+            confidence_threshold,
+        )
 
     all_images = _find_processed_images(data_dir)
     logger.info("Found %d processed images for inference", len(all_images))
@@ -196,21 +242,37 @@ def run_inference(
             logger.warning("No cells in mask for %s", img_path)
             continue
 
-        preds = classify_cells(model, crops, transform, device, confidence_threshold, batch_size)
+        preds = classify_cells(
+            model,
+            crops,
+            transform,
+            device,
+            confidence_threshold=confidence_threshold,
+            batch_size=batch_size,
+            selective_rejection_enabled=selective_enabled,
+            selective_t_bad=selective_t_bad,
+            selective_t_good=selective_t_good,
+        )
         for p in preds:
             p["image_path"] = image_stem
             all_rows.append(p)
 
         n_good = sum(1 for p in preds if p["predicted_verdict"] == "good")
+        n_bad = sum(1 for p in preds if p["predicted_verdict"] == "bad")
+        n_rejected = sum(1 for p in preds if p["predicted_verdict"] == "rejected")
         logger.info(
-            "%s: %d cells -> %d good, %d bad",
+            "%s: %d cells -> %d good, %d bad, %d rejected",
             image_stem,
             len(preds),
             n_good,
-            len(preds) - n_good,
+            n_bad,
+            n_rejected,
         )
 
-    df = pd.DataFrame(all_rows, columns=["image_path", "mask_index", "predicted_verdict", "confidence"])
+    df = pd.DataFrame(
+        all_rows,
+        columns=["image_path", "mask_index", "predicted_verdict", "confidence", "accepted"],
+    )
 
     csv_path = output_dir / "predictions.csv"
     df.to_csv(csv_path, index=False)

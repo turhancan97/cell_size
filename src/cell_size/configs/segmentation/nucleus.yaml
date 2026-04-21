@@ -5,6 +5,6 @@ cellprob_threshold: 0.0
 tile_norm_blocksize: 0
 resize: 0
 min_cell_size: 15
-niter: 500
+niter: 1000
 threshold_channel: 0
-threshold_value: 0.5
+threshold_value: 0.75

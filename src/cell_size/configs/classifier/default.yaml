@@ -26,7 +26,11 @@ learning_rate: 0.0001
 weight_decay: 0.00001
 early_stopping_patience: 25
 
-confidence_threshold: 0.7    # cells below this -> flagged for review
+confidence_threshold: 0.5    # cells below this -> flagged for review
+selective_rejection:
+  enabled: false             # if true: use t_bad/t_good and emit "rejected" for uncertain cells
+  t_bad: 0.09                # p_good <= t_bad => bad
+  t_good: 0.51               # p_good >= t_good => good; otherwise rejected
 gpu: true
 
 wandb:
