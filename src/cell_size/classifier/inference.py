@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,119 @@ logger = logging.getLogger(__name__)
 MASK_SUFFIXES = ("_mask.tif", "_mask.tiff", "_mask.npy")
 NUCLEUS_MASK_SUFFIXES = ("_nucleus_mask.tif", "_nucleus_mask.tiff", "_nucleus_mask.npy")
 IMAGE_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
+FROG_ID_RE = re.compile(r"^TIFF_AH_(\d+)_\d+$")
+
+
+def _extract_frog_id(image_name: str) -> int | None:
+    """Extract frog id from image name, e.g. TIFF_AH_001_04 -> 1."""
+    m = FROG_ID_RE.match(str(image_name))
+    if m is None:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _safe_ratio(numerator: float | int | None, denominator: float | int | None, ndigits: int = 4) -> float:
+    """Division-safe ratio; returns NaN if inputs are missing/invalid/zero denominator."""
+    if numerator is None or denominator is None:
+        return np.nan
+    num = float(numerator)
+    den = float(denominator)
+    if not np.isfinite(num) or not np.isfinite(den) or den == 0.0:
+        return np.nan
+    return round(num / den, ndigits)
+
+
+def _frog_aggregate_columns(filtered_df: pd.DataFrame) -> list[str]:
+    preferred_metrics = [
+        "area_px",
+        "area_um2",
+        "major_axis_px",
+        "minor_axis_px",
+        "cell_axis_ratio",
+        "major_axis_um",
+        "minor_axis_um",
+        "nucleus_area_px",
+        "nucleus_major_axis_px",
+        "nucleus_minor_axis_px",
+        "nucleus_axis_ratio",
+        "nc_ratio",
+        "nucleus_area_um2",
+        "nucleus_major_axis_um",
+        "nucleus_minor_axis_um",
+    ]
+    numeric_metrics = [c for c in preferred_metrics if c in filtered_df.columns]
+    if not numeric_metrics:
+        numeric_metrics = [
+            c for c in filtered_df.columns
+            if pd.api.types.is_numeric_dtype(filtered_df[c]) and c not in {"frog_id", "mask_index"}
+        ]
+    out_cols = ["frog_id", "n_images", "n_cells"]
+    for metric in numeric_metrics:
+        out_cols.extend([f"{metric}_mean", f"{metric}_std"])
+    return out_cols
+
+
+def _build_frog_aggregated_metrics(filtered_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Aggregate per-cell filtered area metrics into one row per frog."""
+    out_cols = _frog_aggregate_columns(filtered_df)
+    if filtered_df.empty:
+        return pd.DataFrame(columns=out_cols), []
+
+    work = filtered_df.copy()
+    if "frog_id" not in work.columns:
+        work["frog_id"] = work["image_path"].map(_extract_frog_id)
+
+    unparsed_images = sorted(
+        work.loc[work["frog_id"].isna(), "image_path"].dropna().astype(str).unique().tolist()
+    )
+    work = work.loc[work["frog_id"].notna()].copy()
+    if work.empty:
+        return pd.DataFrame(columns=out_cols), unparsed_images
+
+    work["frog_id"] = work["frog_id"].astype(int)
+    grouped = work.groupby("frog_id", sort=True)
+
+    if "mask_index" in work.columns:
+        agg_df = grouped.agg(
+            n_images=("image_path", "nunique"),
+            n_cells=("mask_index", "count"),
+        )
+    else:
+        agg_df = grouped.agg(
+            n_images=("image_path", "nunique"),
+            n_cells=("image_path", "size"),
+        )
+
+    expected_cols = _frog_aggregate_columns(work)
+    numeric_metrics = [c[:-5] for c in expected_cols if c.endswith("_mean")]
+    for metric in numeric_metrics:
+        agg_df[f"{metric}_mean"] = grouped[metric].mean()
+        agg_df[f"{metric}_std"] = grouped[metric].std(ddof=1)
+
+    agg_df = agg_df.reset_index()
+    return agg_df[expected_cols], unparsed_images
+
+
+def _write_frog_aggregated_metrics(filtered_df: pd.DataFrame, output_path: Path) -> Path:
+    """Write per-frog aggregated erythrocyte metrics CSV."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    frog_df, unparsed = _build_frog_aggregated_metrics(filtered_df)
+    if unparsed:
+        sample = ", ".join(unparsed[:5])
+        logger.warning(
+            "Could not parse frog_id for %d image(s); excluded from frog aggregation. Examples: %s",
+            len(unparsed),
+            sample,
+        )
+
+    frog_df.to_csv(output_path, index=False)
+    logger.info("Frog aggregated metrics CSV -> %s (%d frogs)", output_path, len(frog_df))
+    return output_path
 
 
 def _load_mask(image_folder: Path, image_stem: str) -> np.ndarray | None:
@@ -225,10 +339,15 @@ def run_inference(
     logger.info("Found %d processed images for inference", len(all_images))
 
     all_rows: list[dict] = []
+    unparsed_frog_images: set[str] = set()
 
     for img_path in all_images:
         image_stem = img_path.stem
         image_folder = img_path.parent
+        frog_id = _extract_frog_id(image_stem)
+        if frog_id is None and image_stem not in unparsed_frog_images:
+            unparsed_frog_images.add(image_stem)
+            logger.warning("Could not parse frog_id from image name '%s'", image_stem)
 
         mask = _load_mask(image_folder, image_stem)
         if mask is None:
@@ -255,6 +374,7 @@ def run_inference(
         )
         for p in preds:
             p["image_path"] = image_stem
+            p["frog_id"] = frog_id
             all_rows.append(p)
 
         n_good = sum(1 for p in preds if p["predicted_verdict"] == "good")
@@ -271,7 +391,7 @@ def run_inference(
 
     df = pd.DataFrame(
         all_rows,
-        columns=["image_path", "mask_index", "predicted_verdict", "confidence", "accepted"],
+        columns=["image_path", "mask_index", "predicted_verdict", "confidence", "accepted", "frog_id"],
     )
 
     csv_path = output_dir / "predictions.csv"
@@ -308,8 +428,14 @@ def compute_filtered_areas(
     records: list[dict] = []
     has_any_um = False
     has_any_nucleus = False
+    unparsed_frog_images: set[str] = set()
 
     for image_name, group in good_df.groupby("image_path"):
+        frog_id = _extract_frog_id(str(image_name))
+        if frog_id is None and image_name not in unparsed_frog_images:
+            unparsed_frog_images.add(str(image_name))
+            logger.warning("Could not parse frog_id from image name '%s'", image_name)
+
         image_folder = _find_image_folder(data_dir, str(image_name))
         if image_folder is None:
             continue
@@ -374,6 +500,7 @@ def compute_filtered_areas(
 
             rec: dict = {
                 "image_path": image_name,
+                "frog_id": frog_id,
                 "mask_index": label,
                 "area_px": area_px,
             }
@@ -383,9 +510,14 @@ def compute_filtered_areas(
             if compute_diameters and major_px is not None:
                 rec["major_axis_px"] = round(major_px, 2)
                 rec["minor_axis_px"] = round(minor_px, 2)
+                rec["cell_axis_ratio"] = _safe_ratio(major_px, minor_px)
                 if pixel_to_um is not None:
                     rec["major_axis_um"] = round(major_px * pixel_to_um, 4)
                     rec["minor_axis_um"] = round(minor_px * pixel_to_um, 4)
+            elif compute_diameters:
+                rec["major_axis_px"] = np.nan
+                rec["minor_axis_px"] = np.nan
+                rec["cell_axis_ratio"] = np.nan
 
             # Nucleus columns
             if nuc_mask is not None:
@@ -395,6 +527,7 @@ def compute_filtered_areas(
                     rec["nucleus_area_px"] = np_info["area"]
                     rec["nucleus_major_axis_px"] = round(np_info["major"], 2)
                     rec["nucleus_minor_axis_px"] = round(np_info["minor"], 2)
+                    rec["nucleus_axis_ratio"] = _safe_ratio(np_info["major"], np_info["minor"])
                     rec["nc_ratio"] = round(np_info["area"] / max(area_px, 1), 4)
                     if pixel_to_um is not None:
                         rec["nucleus_area_um2"] = round(np_info["area"] * pixel_to_um**2, 4)
@@ -404,25 +537,34 @@ def compute_filtered_areas(
                     rec["nucleus_area_px"] = None
                     rec["nucleus_major_axis_px"] = None
                     rec["nucleus_minor_axis_px"] = None
+                    rec["nucleus_axis_ratio"] = np.nan
                     rec["nc_ratio"] = None
 
             records.append(rec)
 
-    cols = ["image_path", "mask_index", "area_px"]
+    cols = ["image_path", "frog_id", "mask_index", "area_px"]
     if has_any_um:
         cols.append("area_um2")
     if compute_diameters:
-        cols.extend(["major_axis_px", "minor_axis_px"])
+        cols.extend(["major_axis_px", "minor_axis_px", "cell_axis_ratio"])
         if has_any_um:
             cols.extend(["major_axis_um", "minor_axis_um"])
     if has_any_nucleus:
-        cols.extend(["nucleus_area_px", "nucleus_major_axis_px", "nucleus_minor_axis_px", "nc_ratio"])
+        cols.extend([
+            "nucleus_area_px",
+            "nucleus_major_axis_px",
+            "nucleus_minor_axis_px",
+            "nucleus_axis_ratio",
+            "nc_ratio",
+        ])
         if has_any_um:
             cols.extend(["nucleus_area_um2", "nucleus_major_axis_um", "nucleus_minor_axis_um"])
 
     df = pd.DataFrame(records, columns=cols)
     df.to_csv(output_path, index=False)
     logger.info("Filtered areas CSV -> %s (%d good cells)", output_path, len(df))
+    frog_agg_path = output_path.parent / "frog_aggregated_metrics.csv"
+    _write_frog_aggregated_metrics(df, frog_agg_path)
     return output_path
 
 

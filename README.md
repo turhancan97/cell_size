@@ -181,13 +181,15 @@ outputs use a `_nucleus_` infix. Each run also writes its own catalog CSV
 
 During `cell-size-classify` inference, the pipeline automatically detects
 nucleus masks (`_nucleus_mask.tif`) alongside membrane masks and adds
-nucleus measurements to `filtered_areas.csv`:
+cell/nucleus morphology measurements to `filtered_areas.csv`:
 
 | Column                  | Description                              |
 |-------------------------|------------------------------------------|
+| `cell_axis_ratio`       | Cell long-axis / short-axis ratio        |
 | `nucleus_area_px`       | Nucleus area in pixels                   |
 | `nucleus_major_axis_px` | Nucleus long diameter (px)               |
 | `nucleus_minor_axis_px` | Nucleus short diameter (px)              |
+| `nucleus_axis_ratio`    | Nucleus long-axis / short-axis ratio     |
 | `nc_ratio`              | Nucleus-to-cell area ratio               |
 | `nucleus_area_um2`      | Nucleus area in µm² (if scale known)     |
 | `nucleus_major_axis_um` | Nucleus long diameter in µm              |
@@ -385,12 +387,16 @@ classifier_output/
   confusion_matrix.png    # test set confusion matrix
 
 classify_output/
-  predictions.csv         # per-cell predictions with confidence + accepted flag (verdict: good|bad|rejected)
-  filtered_areas.csv      # areas + diameters + nucleus measurements for good cells
+  predictions.csv         # per-cell predictions with confidence + accepted + frog_id (verdict: good|bad|rejected)
+  filtered_areas.csv      # good-cell morphology (areas, diameters, ratios, frog_id)
+  frog_aggregated_metrics.csv  # one row per frog: n_images, n_cells, metric means/stds
   overlays/
     img001_filtered_overlay.jpg   # good=green, bad=orange, rejected=magenta + nucleus boundaries (cyan)
     img002_filtered_overlay.jpg
 ```
+
+Frog IDs are parsed from image names using `TIFF_AH_<frog_id>_<image_idx>`
+(for example: `TIFF_AH_001_04 -> 1`, `TIFF_AH_476_10 -> 476`).
 
 ## Interactive Demo (Gradio)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 from pathlib import Path
 
@@ -57,6 +58,27 @@ _classifier_model = None
 _classifier_ckpt: dict | None = None
 _classifier_path: str | None = None
 _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+_FROG_ID_RE = re.compile(r"^TIFF_AH_(\d+)_\d+$")
+
+
+def _extract_frog_id(image_name: str) -> int | None:
+    m = _FROG_ID_RE.match(str(image_name))
+    if m is None:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _safe_ratio(numerator: float | int | None, denominator: float | int | None, ndigits: int = 4) -> float:
+    if numerator is None or denominator is None:
+        return np.nan
+    num = float(numerator)
+    den = float(denominator)
+    if not np.isfinite(num) or not np.isfinite(den) or den == 0.0:
+        return np.nan
+    return round(num / den, ndigits)
 
 
 def _get_segmenter() -> Segmenter:
@@ -150,7 +172,9 @@ def run_pipeline(
     generate_overlay(img, masks, seg_overlay_path)
 
     # --- 4. Classify (if checkpoint provided) ---
-    preds_df = pd.DataFrame(columns=["mask_index", "predicted_verdict", "confidence", "accepted"])
+    preds_df = pd.DataFrame(
+        columns=["mask_index", "predicted_verdict", "confidence", "accepted", "image_path", "frog_id"],
+    )
     filtered_overlay_img = None
     areas_df = pd.DataFrame()
     preds_csv_path = None
@@ -187,6 +211,10 @@ def run_pipeline(
             selective_t_good=selective_t_good,
         )
         preds_df = pd.DataFrame(preds)
+        image_stem = image_path.stem
+        frog_id = _extract_frog_id(image_stem)
+        preds_df["image_path"] = image_stem
+        preds_df["frog_id"] = frog_id
 
         preds_csv_path = str(tmp_dir / "predictions.csv")
         preds_df.to_csv(preds_csv_path, index=False)
@@ -235,6 +263,8 @@ def _compute_good_cell_areas(
     added for each cell that has a matching nucleus.
     """
     pixel_to_um = resolve_pixel_scale(image_path, config_pixel_to_um)
+    image_stem = image_path.stem
+    frog_id = _extract_frog_id(image_stem)
 
     good_labels = set(
         preds_df.loc[preds_df["predicted_verdict"] == "good", "mask_index"].astype(int)
@@ -269,11 +299,16 @@ def _compute_good_cell_areas(
         if label not in good_labels:
             continue
         area_px = int(props["area"][i])
+        major_axis_px = round(float(props["major_axis_length"][i]), 2)
+        minor_axis_px = round(float(props["minor_axis_length"][i]), 2)
         rec: dict = {
+            "image_path": image_stem,
+            "frog_id": frog_id,
             "mask_index": label,
             "area_px": area_px,
-            "major_axis_px": round(float(props["major_axis_length"][i]), 2),
-            "minor_axis_px": round(float(props["minor_axis_length"][i]), 2),
+            "major_axis_px": major_axis_px,
+            "minor_axis_px": minor_axis_px,
+            "cell_axis_ratio": _safe_ratio(major_axis_px, minor_axis_px),
         }
         if pixel_to_um is not None:
             rec["area_um2"] = round(area_px * pixel_to_um**2, 4)
@@ -287,6 +322,7 @@ def _compute_good_cell_areas(
                 rec["nucleus_area_px"] = ninfo["area"]
                 rec["nucleus_major_axis_px"] = round(ninfo["major"], 2)
                 rec["nucleus_minor_axis_px"] = round(ninfo["minor"], 2)
+                rec["nucleus_axis_ratio"] = _safe_ratio(rec["nucleus_major_axis_px"], rec["nucleus_minor_axis_px"])
                 rec["nc_ratio"] = round(ninfo["area"] / max(area_px, 1), 4)
                 if pixel_to_um is not None:
                     rec["nucleus_area_um2"] = round(ninfo["area"] * pixel_to_um**2, 4)
@@ -296,6 +332,7 @@ def _compute_good_cell_areas(
                 rec["nucleus_area_px"] = None
                 rec["nucleus_major_axis_px"] = None
                 rec["nucleus_minor_axis_px"] = None
+                rec["nucleus_axis_ratio"] = np.nan
                 rec["nc_ratio"] = None
 
         records.append(rec)
@@ -430,7 +467,14 @@ def build_app() -> gr.Blocks:
                     with gr.Tab("All Predictions"):
                         preds_table = gr.Dataframe(
                             label="Per-cell predictions",
-                            headers=["mask_index", "predicted_verdict", "confidence", "accepted"],
+                            headers=[
+                                "mask_index",
+                                "predicted_verdict",
+                                "confidence",
+                                "accepted",
+                                "image_path",
+                                "frog_id",
+                            ],
                             interactive=False,
                         )
                     with gr.Tab("Filtered Areas (good cells)"):

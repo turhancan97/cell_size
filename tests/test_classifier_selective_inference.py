@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 import torch.nn as nn
@@ -155,7 +156,9 @@ def test_run_inference_predictions_csv_columns_and_rejected(monkeypatch, tmp_pat
         "predicted_verdict",
         "confidence",
         "accepted",
+        "frog_id",
     ]
     assert df.loc[0, "predicted_verdict"] == "rejected"
     assert bool(df.loc[0, "accepted"]) is False
+    assert pd.isna(df.loc[0, "frog_id"])
     assert (out_dir / "predictions.csv").is_file()
