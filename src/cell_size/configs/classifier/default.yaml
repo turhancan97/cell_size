@@ -10,7 +10,7 @@ seed: 42 # 8 | 42 | 100
 encoder: "resnet18"          # resnet18 | resnet50 | vit_b_16 | efficientnet_b0 | squeezenet1_1 | timm/<model_name> (e.g. timm/vit_small_patch16_dinov3.lvd1689m)
 freeze_encoder: false
 pretrained: true
-train_with_val: true        # if true: train on train+val and monitor/select checkpoint on test (final-fit mode)
+train_with_val: false        # if true: train on train+val and monitor/select checkpoint on test (final-fit mode)
 use_mlp_head: false           # if true: Linear(in,128)->ReLU->Linear(128,32)->ReLU->Linear(32,8)->ReLU->Linear(8,1)
 use_efficient_probing: false # timm ViT only; mutually exclusive with use_mlp_head
 efficient_probing:

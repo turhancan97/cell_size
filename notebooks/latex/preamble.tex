@@ -1,0 +1,112 @@
+% Appended by build_report_latex.py (after pandoc header). Tectonic-compatible.
+
+\usepackage{xcolor}
+\definecolor{ReportAccent}{HTML}{1F4E79}
+\definecolor{ReportMuted}{HTML}{5B6770}
+\definecolor{ReportLight}{HTML}{E8F1F8}
+
+\PassOptionsToPackage{colorlinks=true,linkcolor=ReportAccent,urlcolor=ReportAccent,citecolor=ReportAccent}{hyperref}
+
+\usepackage{float}
+\usepackage[margin=2.2cm, headheight=15pt]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\floatplacement{figure}{H}
+
+\graphicspath{{figures/}}
+
+% Numbered sections with accent colour and rule
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{ReportAccent}}
+  {\thesection}{0.75em}{}
+  [\vspace{0.15em}{\color{ReportAccent!35}\titlerule[0.6pt]}]
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{ReportAccent!85!black}}
+  {\thesubsection}{0.6em}{}
+
+\titlespacing*{\section}{0pt}{1.6em}{0.8em}
+\titlespacing*{\subsection}{0pt}{1.2em}{0.5em}
+
+% Figures
+\captionsetup{
+  font=small,
+  labelfont={bf,color=ReportAccent},
+  format=plain,
+  labelsep=period,
+  skip=8pt,
+  singlelinecheck=false,
+}
+
+% Abstract panel
+\newtcolorbox{abstractbox}{
+  enhanced,
+  colback=ReportLight,
+  colframe=ReportAccent,
+  boxrule=0.8pt,
+  arc=2pt,
+  left=12pt,
+  right=12pt,
+  top=10pt,
+  bottom=10pt,
+  before skip=0.5em,
+  after skip=1.2em,
+  before upper={\setlength{\parskip}{0.85em}},
+}
+
+% Headline statistics
+\newtcolorbox{keystats}{
+  enhanced,
+  colback=ReportLight!45,
+  colframe=ReportAccent!55,
+  boxrule=0.5pt,
+  arc=2pt,
+  left=10pt,
+  right=10pt,
+  top=8pt,
+  bottom=8pt,
+  before skip=0.6em,
+  after skip=1em,
+}
+\newenvironment{keystatslist}{%
+  \begin{itemize}[leftmargin=1.2em, itemsep=0.25em, topsep=0.2em, parsep=0pt]
+}{%
+  \end{itemize}
+}
+
+% Compact scientific tables
+\newenvironment{scitable}{%
+  \par\vspace{0.4em}
+  \begin{center}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \renewcommand{\arraystretch}{1.25}
+}{%
+  \end{center}
+  \par\vspace{0.6em}
+}
+
+\captionsetup[table]{font=small, labelfont=bf, skip=6pt}
+
+% Running header / footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{ReportMuted}\nouppercase{\leftmark}}
+\fancyhead[R]{\small\color{ReportMuted}\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\headrule}{\color{ReportAccent!30}\hrule width\headwidth height 0.4pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}
+  \fancyfoot[C]{\small\color{ReportMuted}\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+\newcommand{\um}{\,\text{µm}}
+\newcommand{\umsq}{\,\text{µm}^2}
+
+\setcounter{secnumdepth}{2}

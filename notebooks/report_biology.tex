@@ -1,0 +1,862 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+  english,
+]{article}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb}
+% section numbering enabled in preamble
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{longtable,booktabs,array}
+\newcounter{none} % for unnumbered tables
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+\ifLuaTeX
+\usepackage[bidi=basic,shorthands=off]{babel}
+\else
+\usepackage[bidi=default,shorthands=off]{babel}
+\fi
+\ifLuaTeX
+  \usepackage{selnolig} % disable illegal ligatures
+\fi
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+% Appended by build_report_latex.py (after pandoc header). Tectonic-compatible.
+
+\usepackage{xcolor}
+\definecolor{ReportAccent}{HTML}{1F4E79}
+\definecolor{ReportMuted}{HTML}{5B6770}
+\definecolor{ReportLight}{HTML}{E8F1F8}
+
+\PassOptionsToPackage{colorlinks=true,linkcolor=ReportAccent,urlcolor=ReportAccent,citecolor=ReportAccent}{hyperref}
+
+\usepackage{float}
+\usepackage[margin=2.2cm, headheight=15pt]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\floatplacement{figure}{H}
+
+\graphicspath{{figures/}}
+
+% Numbered sections with accent colour and rule
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{ReportAccent}}
+  {\thesection}{0.75em}{}
+  [\vspace{0.15em}{\color{ReportAccent!35}\titlerule[0.6pt]}]
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{ReportAccent!85!black}}
+  {\thesubsection}{0.6em}{}
+
+\titlespacing*{\section}{0pt}{1.6em}{0.8em}
+\titlespacing*{\subsection}{0pt}{1.2em}{0.5em}
+
+% Figures
+\captionsetup{
+  font=small,
+  labelfont={bf,color=ReportAccent},
+  format=plain,
+  labelsep=period,
+  skip=8pt,
+  singlelinecheck=false,
+}
+
+% Abstract panel
+\newtcolorbox{abstractbox}{
+  enhanced,
+  colback=ReportLight,
+  colframe=ReportAccent,
+  boxrule=0.8pt,
+  arc=2pt,
+  left=12pt,
+  right=12pt,
+  top=10pt,
+  bottom=10pt,
+  before skip=0.5em,
+  after skip=1.2em,
+  before upper={\setlength{\parskip}{0.85em}},
+}
+
+% Headline statistics
+\newtcolorbox{keystats}{
+  enhanced,
+  colback=ReportLight!45,
+  colframe=ReportAccent!55,
+  boxrule=0.5pt,
+  arc=2pt,
+  left=10pt,
+  right=10pt,
+  top=8pt,
+  bottom=8pt,
+  before skip=0.6em,
+  after skip=1em,
+}
+\newenvironment{keystatslist}{%
+  \begin{itemize}[leftmargin=1.2em, itemsep=0.25em, topsep=0.2em, parsep=0pt]
+}{%
+  \end{itemize}
+}
+
+% Compact scientific tables
+\newenvironment{scitable}{%
+  \par\vspace{0.4em}
+  \begin{center}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \renewcommand{\arraystretch}{1.25}
+}{%
+  \end{center}
+  \par\vspace{0.6em}
+}
+
+\captionsetup[table]{font=small, labelfont=bf, skip=6pt}
+
+% Running header / footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{ReportMuted}\nouppercase{\leftmark}}
+\fancyhead[R]{\small\color{ReportMuted}\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\headrule}{\color{ReportAccent!30}\hrule width\headwidth height 0.4pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}
+  \fancyfoot[C]{\small\color{ReportMuted}\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+\newcommand{\um}{\,\text{$\mu$m}}
+\newcommand{\umsq}{\,\text{$\mu$m}^2}
+
+\setcounter{secnumdepth}{2}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Frog Blood Cell Morphology --- Full Dataset Report},
+  pdflang={en},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Frog Blood Cell Morphology --- Full Dataset Report}
+\author{}
+\date{23 May 2026}
+
+\begin{document}
+\begin{titlepage}
+\thispagestyle{empty}
+\centering
+\vspace*{2.2cm}
+{\color{ReportAccent}\rule{\textwidth}{2pt}\par}
+\vspace{1.4cm}
+{\Huge\bfseries\color{ReportAccent} Frog Blood Cell Morphology\par}
+\vspace{0.35em}
+{\Huge\bfseries\color{ReportAccent} Full Dataset Report\par}
+\vspace{1.2cm}
+{\large\color{ReportMuted} Morphometric analysis report\par}
+\vfill
+{\large 23 May 2026\par}
+\vspace{2cm}
+{\color{ReportAccent}\rule{\textwidth}{2pt}\par}
+\end{titlepage}
+\setcounter{page}{1}
+
+\section{Abstract}\label{abstract}
+\begin{abstractbox}
+This report describes the \textbf{size and shape of frog blood cells}
+measured from microscopy images. We focus on cells that passed an
+automatic quality check and were labelled \textbf{good} for analysis.
+Cells labelled bad or rejected were not included in the size summaries.
+
+The dataset covers \textbf{479 frogs} and \textbf{7,214 images}. In
+total, \textbf{383,915} detected cells were scored; \textbf{57,520}
+(\textbf{15.0\%}) were accepted as good. All sizes below refer to this
+good-cell set only.
+
+\textbf{Cell size.} The typical (median) cell covers \textbf{290.69
+\(\mu\)m\(^2\)} of area. Half of good cells fall between \textbf{257.70}
+and \textbf{335.48 \(\mu\)m\(^2\)} (the middle 50\% of the
+distribution). That area is similar to a \textbf{circle about 19.24
+\(\mu\)m wide} (a simple way to picture area as a length; the cell is
+not necessarily round). The average cell area was \textbf{303.10 \(\pm\)
+67.07 \(\mu\)m\(^2\)} (mean \(\pm\) SD across all good cells).
+
+\textbf{Nucleus size.} For \textbf{57,218} cells we also measured the
+nucleus. The N/C ratio is nucleus area divided by cell area (a number
+between 0 and 1). The typical value was \textbf{0.13}; the mean \(\pm\)
+SD across cells was \textbf{0.14 \(\pm\) 0.04}.
+
+\textbf{Differences between frogs.} Cell size was \textbf{not the same
+in every frog}. Each frog has an average cell area; those averages
+ranged from \textbf{212.55} to \textbf{482.23 \(\mu\)m\(^2\)}. The
+\textbf{typical frog's average} (median across frogs, each frog counted
+once) was \textbf{290.34 \(\mu\)m\(^2\)}. Roughly \textbf{0.661} of the
+variation in cell area between cells is due to \textbf{which frog} the
+cell came from. The rest is how much cells differ \textbf{within the
+same frog} --- typical spread about \textbf{11.7\%} of that frog's mean
+area (e.g.~\(\approx\pm\) 12\% around a frog's average). In short: frogs
+differ in average cell size, but cells from one frog are usually similar
+to each other.
+
+\textbf{Nucleus vs cell size.} When cells get larger, the nucleus does
+not grow as fast as the cell body. Larger cells therefore tend to have a
+\textbf{proportionally smaller nucleus} (a lower N/C ratio).
+\end{abstractbox}
+
+\section{Methods}\label{methods}
+
+\textbf{Images and cohort.} We analysed microscopy images of
+\textbf{frog blood cells} from \textbf{479 frogs} (\textbf{7,214
+images}). Each detected cell was linked to a \textbf{frog ID} parsed
+from the image file name. All size measurements are reported in
+\textbf{micrometres (\(\mu\)m)} or \textbf{square micrometres
+(\(\mu\)m\(^2\))} after converting from pixels.
+
+\textbf{Segmentation.} Cells were segmented automatically from each
+image using \textbf{Cellpose} (membrane/nucleus masks). Each connected
+region in the cell mask is treated as one candidate cell.
+
+\textbf{Quality classification.} Every cell crop was scored by a trained
+\textbf{ResNet18} classifier, which outputs \textbf{p(good)} --- the
+model's estimated probability that the cell quality is good enough to
+measure. We used \textbf{selective rejection} with three outcomes:
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{p(good) \(\leq\) 0.10} \(\rightarrow\) \textbf{bad} (poor
+  quality; excluded from size analysis)
+\item
+  \textbf{p(good) \(\geq\) 0.76} \(\rightarrow\) \textbf{good} (good
+  quality; included in all morphometry and summaries)
+\item
+  \textbf{0.10 \textless{} p(good) \textless{} 0.76} \(\rightarrow\)
+  \textbf{rejected} (model uncertain; excluded from size analysis)
+\end{itemize}
+\end{keystats}
+
+Of \textbf{383,915} scored detections, \textbf{57,520} (\textbf{15.0\%})
+were labelled good, \textbf{5,535} were rejected as uncertain, and the
+remainder were bad. \textbf{Only good cells} enter the size results in
+this report.
+
+\textbf{Morphometry.} For each good cell we measured:
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Cell area} (\(\mu\)m\(^2\)) and \textbf{long / short diameter}
+  (\(\mu\)m)
+\item
+  \textbf{Nucleus area and axes}, \textbf{N/C ratio} (nucleus area
+  \(\div\) cell area), and \textbf{axis ratio} (major \(\div\) minor
+  axis)
+\end{itemize}
+\end{keystats}
+
+Pixel measurements were converted to \(\mu\)m using the \textbf{pixel
+size read from each image's metadata} (OME-TIFF / TIFF), when available.
+
+\textbf{Aggregation and yield.} For each frog we computed the
+\textbf{mean and SD} of cell area (and other metrics) across its good
+cells. \textbf{Yield} (good fraction) is the share of scored detections
+labelled good, reported per frog and per image to show how much of each
+sample passed the quality filter.
+
+\textbf{Statistical analysis.}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Reference intervals:} 2.5th, 50th (median), and 97.5th
+  percentiles of good-cell measurements
+\item
+  \textbf{Between-frog variation:} ICC --- the share of cell-area
+  variation explained by \textbf{which frog} a cell came from
+\item
+  \textbf{Within-frog spread:} for each frog, CV = (SD \(\div\) mean)
+  \(\times\) 100\%; we report the median across frogs
+\item
+  \textbf{Nucleus--cell scaling:} log--log regression of nucleus size vs
+  cell size; slope \(\approx\) 1 means nucleus and cell grow together;
+  slope \textless{} 1 means the nucleus grows more slowly
+\item
+  \textbf{Mixed-effects models:} the same regressions with a
+  \textbf{random intercept per frog}, so many cells from the same frog
+  are not treated as independent repeats
+\item
+  \textbf{N/C vs cell size:} mixed model for log(N/C) vs log(cell area)
+\end{itemize}
+\end{keystats}
+
+\section{Cell area distribution}\label{cell-area-distribution}
+
+Distribution of cell areas (\(\mu\)m\(^2\)) for all good cells.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/AreaDistribution.png}
+\caption{Cell area distribution}
+\end{figure}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Median cell area: 290.69 \(\mu\)m\(^2\)} (IQR 257.70--335.48
+  \(\mu\)m\(^2\)).
+\item
+  \textbf{Mean \(\pm\) SD: 303.10 \(\pm\) 67.07 \(\mu\)m\(^2\).}
+\item
+  \textbf{Circle equivalent: 19.24 \(\mu\)m} --- the diameter of a
+  circle with the same area as the median cell (\(d = 2\sqrt{A/\pi}\)).
+\end{itemize}
+\end{keystats}
+
+\section{Cell diameter distribution}\label{cell-diameter-distribution}
+
+Long-axis and short-axis diameters (\(\mu\)m) for good cells. The two
+distributions track each other closely.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/DiameterDistribution.png}
+\caption{Cell diameter distribution}
+\end{figure}
+
+\section{Nucleus size distribution}\label{nucleus-size-distribution}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NucleusDistribution.png}
+\caption{Nucleus distribution}
+\end{figure}
+
+\section{Nucleus-to-cell area ratio
+(N/C)}\label{nucleus-to-cell-area-ratio-nc}
+
+Distribution of nucleus area divided by cell area.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NCRatioDistribution.png}
+\caption{N/C ratio distribution}
+\end{figure}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Median N/C ratio: 0.13} (nucleus area \(\approx\) 0.13 of cell
+  area --- about 13\% of the cell).
+\item
+  \textbf{Mean \(\pm\) SD: 0.14 \(\pm\) 0.04.}
+\end{itemize}
+\end{keystats}
+
+\section{Per-frog variation in cell and nucleus
+area}\label{per-frog-variation-in-cell-and-nucleus-area}
+
+Boxplots for the top-40 frogs by good-cell count, sorted by per-frog
+median cell area.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/PerFrogBoxplot.png}
+\caption{Per-frog cell area}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/PerFrogNucleusBoxplot.png}
+\caption{Per-frog nucleus area}
+\end{figure}
+
+\begin{keystats}
+Per-frog mean cell area spans \textbf{212.55--482.23 \(\mu\)m\(^2\)}.
+The typical frog's average (median across frogs) was \textbf{290.34
+\(\mu\)m\(^2\)}.
+\end{keystats}
+
+\section{Classification yield}\label{classification-yield}
+
+Not every detected cell is measured in this report. After segmentation,
+the quality classifier labels each cell \textbf{good}, \textbf{bad}, or
+\textbf{rejected} (uncertain). \textbf{Yield} is the \textbf{good
+fraction} --- the share of scored detections that were accepted as good
+enough to measure. This section shows how that fraction varies across
+frogs and images.
+
+\textbf{What to expect in the figure below.} The \textbf{left panel} is
+a stacked bar chart for the first 80 frogs: \textbf{green} = good cells,
+\textbf{orange} = bad, \textbf{pink} = rejected. Taller green stacks
+mean more cells passed the filter for that frog. The \textbf{right
+panel} plots each frog's good fraction against its total good-cell count
+--- it shows whether frogs with more accepted cells also tend to have
+higher (or lower) yield. The summary numbers after the figure give
+cohort-wide yield and the per-frog / per-image range.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/YieldByFrog.png}
+\caption{Classification yield}
+\end{figure}
+
+Of \textbf{383,915} scored detections, \textbf{57,520} were accepted as
+good (\textbf{15.0\%}). Per-frog good fraction: median \textbf{17.7\%}
+(range \textbf{2.7--62.1\%}). Per-image median good fraction:
+\textbf{17.6\%}; \textbf{16} images had zero good cells.
+
+\textbf{Important.} All cell-size results in this report use
+\textbf{good cells only}. Cells labelled bad or rejected are
+\textbf{not} included in area, diameter, or N/C summaries. When you read
+those size numbers, also check \textbf{yield}: if a frog or image had a
+\textbf{low good fraction}, fewer cells were measured there, so its size
+average may be less reliable and the sample may not represent everything
+that was seen in the microscope image.
+
+\section{Nucleus--cell scaling
+(regression)}\label{nucleuscell-scaling-regression}
+
+This section asks: \textbf{when a cell gets larger, does the nucleus
+grow in proportion?} We fit \textbf{log--log regressions} on good cells
+with a matched nucleus (57,218 cells, 479 frogs). On a log--log plot, a
+straight line means nucleus size scales as a \textbf{power} of cell
+size. A slope of \textbf{1} is isometric scaling (nucleus and cell grow
+at the same rate); \textbf{below 1} is negative allometry (the nucleus
+grows more slowly than the cell).
+
+\textbf{What to expect in the figures below.} There are \textbf{three
+scatter plots}, one for each size pair:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Nucleus area vs cell area}
+\item
+  \textbf{Nucleus long axis vs cell long axis}
+\item
+  \textbf{Nucleus short axis vs cell short axis}
+\end{enumerate}
+
+Each plot uses \textbf{log--log axes} (both axes logarithmic). Every
+point is one cell; the top frogs by cell count are shown in
+\textbf{colour}, the rest in grey. Each plot overlays a \textbf{solid
+black OLS line} (one best-fit line through all pooled cells) and a
+\textbf{dashed orange Mixed line} (the within-frog trend with a random
+intercept per frog).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NucleusVsCellRegression.png}
+\caption{Nucleus area vs cell area}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NucleusMajorVsCellMajor.png}
+\caption{Nucleus major vs cell major axis}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NucleusMinorVsCellMinor.png}
+\caption{Nucleus minor vs cell minor axis}
+\end{figure}
+
+\textbf{What to expect in the table below.} One row per comparison
+(area, long axis, short axis). The table gives the numeric slopes that
+match the plots:
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{OLS slope} --- ordinary least squares across \textbf{all
+  cells} (each cell counted separately; mixes variation between and
+  within frogs).
+\item
+  \textbf{Mixed slope} --- mixed-effects model with a \textbf{random
+  intercept per frog}; estimates how nucleus size changes with cell size
+  \textbf{among cells from the same frog}.
+\item
+  \textbf{OLS 95\% CI} --- uncertainty interval for the OLS slope.
+\item
+  \textbf{R\(^2\)} --- fraction of variance in log(nucleus) explained by
+  log(cell) in the \textbf{OLS} model (does not apply to the mixed
+  model).
+\item
+  \textbf{Slope \textless{} 1} in every row --- negative allometry:
+  larger cells have proportionally smaller nuclei along that measure.
+  Mixed slopes are \textbf{smaller} than OLS because much of the
+  nucleus--cell correlation across the cohort is \textbf{between frogs},
+  not within them.
+\end{itemize}
+\end{keystats}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{0.34\linewidth}
+  >{\centering\arraybackslash}p{0.09\linewidth}
+  >{\centering\arraybackslash}p{0.11\linewidth}
+  >{\centering\arraybackslash}p{0.19\linewidth}
+  >{\centering\arraybackslash}p{0.12\linewidth}
+  >{\centering\arraybackslash}p{0.07\linewidth}@{}}
+\caption{\textbf{Table --- Nucleus--cell scaling regressions} (good
+cells with matched nucleus; 57,218 cells, 479 frogs). OLS = fit across
+all cells; Mixed = random intercept per frog. R\(^2\) = fraction of
+variance in log(nucleus) explained by log(cell) in the OLS
+model.}\tabularnewline
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Comparison
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+n
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+OLS slope
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+OLS 95\% CI
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Mixed slope
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\(^2\)
+\end{minipage} \\
+\midrule\noalign{}
+\endfirsthead
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Comparison
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+n
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+OLS slope
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+OLS 95\% CI
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Mixed slope
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\(^2\)
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Nucleus area vs cell area & 57,218 & 0.526 & {[}0.518, 0.533{]} & 0.149
+& 0.255 \\
+Nucleus long axis vs cell long axis & 57,218 & 0.616 & {[}0.609,
+0.624{]} & 0.368 & 0.311 \\
+Nucleus short axis vs cell short axis & 57,218 & 0.426 & {[}0.418,
+0.434{]} & 0.182 & 0.148 \\
+\end{longtable}
+
+\section{N/C ratio vs cell size}\label{nc-ratio-vs-cell-size}
+
+\textbf{N/C ratio vs cell size.} The plot below shows whether larger
+cells have a proportionally smaller or larger nucleus (lower or higher
+N/C). The table summarizes mixed-effects models on \textbf{log(N/C)
+$\approx$ log(cell area)}.
+
+\textbf{Random intercept per frog} --- each frog may have a different
+baseline N/C; we test whether N/C still changes with cell area across
+cells. \textbf{Random intercept + slope per frog} --- allows the
+N/C--size trend to vary by frog as well. A \textbf{negative slope} means
+larger cells tend to have \textbf{lower N/C} (a proportionally smaller
+nucleus). Both models show a clear negative slope.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NCRatioVsArea.png}
+\caption{N/C vs cell area}
+\end{figure}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}@{}}
+\caption{\textbf{Table --- Mixed models for N/C vs cell area} (log--log;
+good cells with matched nucleus). Slope = change in log(N/C) per unit
+change in log(cell area).}\tabularnewline
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Slope (log cell area)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+95\% CI
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+n
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Frogs
+\end{minipage} \\
+\midrule\noalign{}
+\endfirsthead
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Slope (log cell area)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+95\% CI
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+n
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Frogs
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Random intercept per frog & -0.8515 & {[}-0.8597, -0.8433{]} & 57,218 &
+479 \\
+Random intercept + slope per frog & -0.8134 & {[}-0.8342, -0.7926{]} &
+57,218 & 479 \\
+\end{longtable}
+
+\section{Reference intervals}\label{reference-intervals}
+
+Normative percentile ranges for good-cell morphology:
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}llll@{}}
+\toprule\noalign{}
+Metric & 2.5th \%ile & Median & 97.5th \%ile \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Cell area ($\mu$m$^2$) & 200.90 & 290.69 & 463.10 \\
+Cell equivalent diameter ($\mu$m) & 15.99 & 19.24 & 24.28 \\
+Cell long axis ($\mu$m) & 19.40 & 24.52 & 32.57 \\
+Cell short axis ($\mu$m) & 12.15 & 15.23 & 19.36 \\
+Nucleus area ($\mu$m$^2$) & 28.57 & 39.06 & 63.36 \\
+N/C area ratio & 0.09 & 0.13 & 0.21 \\
+Cell axis ratio & 1.25 & 1.62 & 2.08 \\
+\end{longtable}
+\end{scitable}
+}
+
+\section{Frog summary snapshot}\label{frog-summary-snapshot}
+
+Ten frogs with the \textbf{smallest} mean cell area and ten with the
+\textbf{largest}, plus a rank scatter of outlier frogs.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/OutlierFrogs.png}
+\caption{Outlier frogs}
+\end{figure}
+
+Ten frogs with the \textbf{smallest} mean cell area:
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}lllll@{}}
+\toprule\noalign{}
+frog\_id & n\_cells & area\_um2\_mean & nc\_ratio\_mean &
+good\_fraction \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+89.0 & 119.0 & 212.55 & 0.16 & 0.19 \\
+41.0 & 187.0 & 216.02 & 0.19 & 0.18 \\
+101.0 & 187.0 & 218.23 & 0.18 & 0.18 \\
+35.0 & 138.0 & 219.15 & 0.14 & 0.21 \\
+99.0 & 146.0 & 221.54 & 0.18 & 0.17 \\
+73.0 & 114.0 & 221.88 & 0.17 & 0.12 \\
+81.0 & 199.0 & 227.21 & 0.15 & 0.26 \\
+30.0 & 127.0 & 227.88 & 0.16 & 0.24 \\
+28.0 & 100.0 & 228.04 & 0.18 & 0.13 \\
+250.0 & 168.0 & 229.04 & 0.15 & 0.21 \\
+\end{longtable}
+\end{scitable}
+}
+
+Ten frogs with the \textbf{largest} mean cell area:
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}lllll@{}}
+\toprule\noalign{}
+frog\_id & n\_cells & area\_um2\_mean & nc\_ratio\_mean &
+good\_fraction \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+221.0 & 89.0 & 449.54 & 0.11 & 0.09 \\
+218.0 & 78.0 & 450.36 & 0.12 & 0.06 \\
+210.0 & 116.0 & 454.62 & 0.12 & 0.23 \\
+166.0 & 98.0 & 456.92 & 0.12 & 0.23 \\
+431.0 & 99.0 & 457.59 & 0.16 & 0.13 \\
+154.0 & 98.0 & 462.55 & 0.11 & 0.15 \\
+455.0 & 83.0 & 465.68 & 0.11 & 0.48 \\
+443.0 & 69.0 & 467.09 & 0.11 & 0.05 \\
+119.0 & 90.0 & 469.63 & 0.11 & 0.08 \\
+440.0 & 136.0 & 482.23 & 0.15 & 0.21 \\
+\end{longtable}
+\end{scitable}
+}
+
+\section{Discussion}\label{discussion}
+
+This report describes the size and shape of \textbf{good-quality frog
+blood cells} from a large automated microscopy cohort. Across
+\textbf{57,520} accepted cells from \textbf{479} frogs, the typical cell
+covered about \textbf{290.69 \(\mu\)m\(^2\)} (median area; middle 50\%
+between \textbf{257.70} and \textbf{335.48 \(\mu\)m\(^2\)}), roughly the
+area of a circle \textbf{19.24 \(\mu\)m} wide. That picture is useful as
+a \textbf{reference description} of well-segmented, classifier-approved
+cells in this dataset.
+
+A striking feature is \textbf{how much average cell size differs between
+frogs}. Per-frog mean areas ranged from \textbf{212.55} to
+\textbf{482.23 \(\mu\)m\(^2\)}, while the typical frog's average (median
+across frogs) was \textbf{290.34 \(\mu\)m\(^2\)}. Roughly \textbf{0.661}
+of the total variation in cell area is associated with \textbf{which
+frog} a cell came from; the rest reflects spread \textbf{within} each
+frog (median within-frog CV about \textbf{11.7\%}). That pattern may
+reflect real biological differences between frogs, differences in sample
+preparation or imaging, or both; we cannot separate those sources here.
+Frogs at the extremes of the size rank (see the frog summary snapshot
+and outlier plot) are \textbf{candidates for manual review}: they may
+represent genuine tail biology, technical artefacts, or low cell counts
+that make the per-frog average less stable.
+
+\textbf{Nucleus size relative to cell size} also carries a consistent
+message. Nucleus--cell scaling is negatively allometric (nucleus grows
+slower than cell area; larger cells are relatively less nucleus-dense).
+In plain terms, when cells get larger, the nucleus tends to grow
+\textbf{more slowly} than the cell body, so larger cells often show a
+\textbf{lower N/C ratio} (a smaller nuclear share of cell area). That is
+\textbf{consistent with} a model in which cytoplasm expands faster than
+nuclear content during cell enlargement, though we have not tested
+underlying mechanisms. The mixed-effects regressions suggest that part
+of the nucleus--cell correlation across the cohort reflects
+\textbf{between-frog} differences, not only within-frog
+co-variation---so population-level trends should be read alongside
+per-frog summaries.
+
+\textbf{Classifier yield} shapes every morphometric statement in this
+report. Only \textbf{15.0\%} of \textbf{383,915} scored detections were
+labelled good (median per-frog good fraction \textbf{17.7\%}, range
+\textbf{2.7--62.1\%}). Cells with uncertain quality were
+\textbf{rejected} rather than forced into good or bad classes.
+Morphometry therefore describes the \textbf{accepted subset}---cells the
+model judged clear enough to measure---not the full pool of segmented
+objects. Frogs or images with \textbf{low yield} contributed fewer
+measured cells; \textbf{16} images had no good cells at all. When
+interpreting a frog's mean area or N/C, it is worth checking its good
+fraction in the exported summary tables: a sparse or selective accepted
+set may not represent everything visible in the image.
+
+\section{Appendix}\label{appendix}
+
+Full per-frog metrics (all morphometry columns, yield, and flags) are
+exported as \texttt{frog\_summary\_report.csv} and
+\texttt{frog\_summary\_report.xlsx}.
+
+\section{Glossary}\label{glossary}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.4000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.6000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Term
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Meaning
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Good cell} & A segmented cell accepted by the quality classifier
+for morphometry. \\
+\textbf{N/C ratio} & Nucleus area divided by cell area (unitless). \\
+\textbf{Yield / good fraction} & Fraction of scored detections accepted
+as good for a frog or image. \\
+\textbf{ICC} & Share of cell-area variation explained by differences
+between frogs (which frog a cell came from). \\
+\textbf{Within-frog spread (CV)} & For each frog, (SD of cell areas
+\(\div\) mean area) \(\times\) 100\%; report gives the median across
+frogs. \\
+\textbf{Typical frog's average} & Median of per-frog mean cell areas ---
+each frog counts once, not weighted by cell count. \\
+\textbf{Circle equivalent diameter} & Diameter of a circle with the same
+area as the cell; a readable length summary, not the cell's true
+width. \\
+\textbf{Allometry} & How nucleus size scales with cell size; slope = 1
+is isometric, \textless{} 1 is negative allometry. \\
+\textbf{Reference interval} & Percentile range (e.g.~2.5th--97.5th)
+describing typical good-cell morphology. \\
+\end{longtable}
+\end{scitable}
+}
+
+\end{document}

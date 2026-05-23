@@ -398,6 +398,25 @@ classify_output/
 Frog IDs are parsed from image names using `TIFF_AH_<frog_id>_<image_idx>`
 (for example: `TIFF_AH_001_04 -> 1`, `TIFF_AH_476_10 -> 476`).
 
+### Biology report (LaTeX/PDF)
+
+After classification on the full dataset, build a biology-only PDF from
+`notebooks/filtered_area_analysis.ipynb` outputs:
+
+```bash
+conda activate cell-size
+python notebooks/build_report_latex.py
+```
+
+This regenerates figures (`notebooks/figures/`), fills
+`notebooks/report_biology.md` from `report_biology.md.template`, and writes
+`notebooks/report_biology.tex` / `report_biology.pdf`. Optional:
+`--no-figures`, `--tex-only`. Requires `xelatex` (TeX Live) for PDF;
+uses a built-in LaTeX converter if `pandoc` is not installed.
+
+Analysis CSV exports: `classify_output/analysis/` (`reference_intervals.csv`,
+`frog_summary_report.csv`, `nc_ratio_mixed_models.csv`).
+
 ## Interactive Demo (Gradio)
 
 A browser-based demo that runs the full pipeline end-to-end: upload an image,
