@@ -6,7 +6,7 @@ date: "{{report_date}}"
 # Abstract
 
 This report describes the **size and shape of frog blood cells** measured from microscopy
-images. We focus on cells that passed an automatic quality check and were labelled **good**
+images. We focus on cells that passed an automatic quality check (with AI model) and were labelled **good**
 for analysis. Cells labelled bad or rejected were not included in the size summaries.
 
 The dataset covers **{{n_frogs}} frogs** and **{{n_images}} images**. In total,
@@ -47,7 +47,7 @@ ratio).
 (membrane/nucleus masks).
 Each connected region in the cell mask is treated as one candidate cell.
 
-**Quality classification.** Every cell crop was scored by a trained **ResNet18**
+**Quality classification.** Every cell crop was scored by a trained **ResNet18** (our AI model)
 classifier, which outputs **p(good)** — the model’s estimated probability that the
 cell quality is good enough to measure. We used **selective rejection** with three
 outcomes:
@@ -63,8 +63,8 @@ were bad. **Only good cells** enter the size results in this report.
 **Morphometry.** For each good cell we measured:
 
 - **Cell area** ($\mu$m$^2$) and **long / short diameter** ($\mu$m)
-- **Nucleus area and axes**, **N/C ratio** (nucleus area $\div$
-  cell area), and **axis ratio** (major $\div$ minor axis)
+- **Nucleus area and long / short diameter**, **N/C ratio** (nucleus area $\div$
+  cell area), and **axis ratio** (long $\div$ short axis)
 
 Pixel measurements were converted to $\mu$m using the **pixel size read from each image’s
 metadata** (OME-TIFF / TIFF), when available.
@@ -105,9 +105,16 @@ distributions track each other closely.
 
 ![Cell diameter distribution](./figures/DiameterDistribution.png)
 
+- **Long axis (major): {{major_median_um}} $\mu$m** (IQR {{major_iqr_lo}}--{{major_iqr_hi}} $\mu$m).
+- **Short axis (minor): {{minor_median_um}} $\mu$m** (IQR {{minor_iqr_lo}}--{{minor_iqr_hi}} $\mu$m).
+- **Axis ratio (major $\div$ minor): median {{cell_axis_ratio_median}}** — values above 1 mean the cell is elongated.
+
 # Nucleus size distribution
 
 ![Nucleus distribution](./figures/NucleusDistribution.png)
+
+- **Nucleus area: {{nucleus_area_median_um2}} $\mu$m$^2$** (IQR {{nucleus_area_iqr_lo}}--{{nucleus_area_iqr_hi}} $\mu$m$^2$); **{{n_nucleus_matched}}** good cells with a matched nucleus mask.
+- **Nucleus long axis: {{nucleus_major_median_um}} $\mu$m**; **short axis: {{nucleus_minor_median_um}} $\mu$m** (medians across matched cells).
 
 # Nucleus-to-cell area ratio (N/C)
 
@@ -159,7 +166,7 @@ everything that was seen in the microscope image.
 # Nucleus--cell scaling (regression)
 
 This section asks: **when a cell gets larger, does the nucleus grow in proportion?** We fit
-**log--log regressions** on good cells with a matched nucleus (57,218 cells, 479 frogs). On a
+**log--log regressions** on good cells with a matched nucleus ({{n_nucleus_matched}} cells, {{n_frogs}} frogs). On a
 log--log plot, a straight line means nucleus size scales as a **power** of cell size. A slope
 of **1** is isometric scaling (nucleus and cell grow at the same rate); **below 1** is
 negative allometry (the nucleus grows more slowly than the cell).
@@ -198,7 +205,7 @@ The table gives the numeric slopes that match the plots:
 
 {{regression_table}}
 
-: **Table — Nucleus--cell scaling regressions** (good cells with matched nucleus; 57,218 cells, 479 frogs). OLS = fit across all cells; Mixed = random intercept per frog. R$^2$ = fraction of variance in log(nucleus) explained by log(cell) in the OLS model.
+: **Table — Nucleus--cell scaling regressions** (good cells with matched nucleus; {{n_nucleus_matched}} cells, {{n_frogs}} frogs). OLS = fit across all cells; Mixed = random intercept per frog. R$^2$ = fraction of variance in log(nucleus) explained by log(cell) in the OLS model.
 
 # N/C ratio vs cell size
 
@@ -223,6 +230,13 @@ negative slope.
 Normative percentile ranges for good-cell morphology:
 
 {{reference_intervals_table}}
+
+The table above summarises **central 95% reference intervals** (2.5th--97.5th percentile) for
+good cells in this cohort. **Cell area** spans **{{ref_area_p2_5}}--{{ref_area_p97_5}} $\mu$m$^2$**
+(median **{{ref_area_p50}} $\mu$m$^2$**). Among cells with a matched nucleus, **nucleus area**
+falls between **{{ref_nucleus_p2_5}}** and **{{ref_nucleus_p97_5}} $\mu$m$^2$** (median
+**{{ref_nucleus_p50}} $\mu$m$^2$**), and **N/C ratio** between **{{ref_nc_p2_5}}** and
+**{{ref_nc_p97_5}}** (median **{{ref_nc_p50}}**).
 
 # Frog summary snapshot
 

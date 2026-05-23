@@ -181,6 +181,26 @@ def load_biology_stats(
     stats["nc_mean"] = nc_sum.get("mean", float("nan"))
     stats["nc_std"] = nc_sum.get("std", float("nan"))
 
+    major_sum = _series_summary(area_df["major_axis_um"]) if "major_axis_um" in area_df.columns else {}
+    minor_sum = _series_summary(area_df["minor_axis_um"]) if "minor_axis_um" in area_df.columns else {}
+    axis_ratio_sum = _series_summary(area_df["cell_axis_ratio"]) if "cell_axis_ratio" in area_df.columns else {}
+    stats["major_median_um"] = major_sum.get("median", float("nan"))
+    stats["major_iqr_lo"] = major_sum.get("q25", float("nan"))
+    stats["major_iqr_hi"] = major_sum.get("q75", float("nan"))
+    stats["minor_median_um"] = minor_sum.get("median", float("nan"))
+    stats["minor_iqr_lo"] = minor_sum.get("q25", float("nan"))
+    stats["minor_iqr_hi"] = minor_sum.get("q75", float("nan"))
+    stats["cell_axis_ratio_median"] = axis_ratio_sum.get("median", float("nan"))
+
+    nuc_area_sum = _series_summary(area_df["nucleus_area_um2"]) if "nucleus_area_um2" in area_df.columns else {}
+    nuc_major_sum = _series_summary(area_df["nucleus_major_axis_um"]) if "nucleus_major_axis_um" in area_df.columns else {}
+    nuc_minor_sum = _series_summary(area_df["nucleus_minor_axis_um"]) if "nucleus_minor_axis_um" in area_df.columns else {}
+    stats["nucleus_area_median_um2"] = nuc_area_sum.get("median", float("nan"))
+    stats["nucleus_area_iqr_lo"] = nuc_area_sum.get("q25", float("nan"))
+    stats["nucleus_area_iqr_hi"] = nuc_area_sum.get("q75", float("nan"))
+    stats["nucleus_major_median_um"] = nuc_major_sum.get("median", float("nan"))
+    stats["nucleus_minor_median_um"] = nuc_minor_sum.get("median", float("nan"))
+
     # Per-frog mean area range
     if not frog_df.empty and "area_um2_mean" in frog_df.columns:
         fm = pd.to_numeric(frog_df["area_um2_mean"], errors="coerce").dropna()
@@ -210,8 +230,30 @@ def load_biology_stats(
         stats["reference_intervals_table"] = _md_table(
             ["Metric", "2.5th %ile", "Median", "97.5th %ile"], ref_rows
         )
+        ref_by_metric = ref_df.set_index("metric") if "metric" in ref_df.columns else pd.DataFrame()
+
+        def _ref_val(metric: str, col: str) -> float:
+            if ref_by_metric.empty or metric not in ref_by_metric.index:
+                return float("nan")
+            return float(ref_by_metric.loc[metric, col])
+
+        stats["ref_area_p2_5"] = _ref_val("area_um2", "p2.5")
+        stats["ref_area_p50"] = _ref_val("area_um2", "p50")
+        stats["ref_area_p97_5"] = _ref_val("area_um2", "p97.5")
+        stats["ref_nucleus_p2_5"] = _ref_val("nucleus_area_um2", "p2.5")
+        stats["ref_nucleus_p50"] = _ref_val("nucleus_area_um2", "p50")
+        stats["ref_nucleus_p97_5"] = _ref_val("nucleus_area_um2", "p97.5")
+        stats["ref_nc_p2_5"] = _ref_val("nc_ratio", "p2.5")
+        stats["ref_nc_p50"] = _ref_val("nc_ratio", "p50")
+        stats["ref_nc_p97_5"] = _ref_val("nc_ratio", "p97.5")
     else:
         stats["reference_intervals_table"] = "_Reference intervals CSV not found._"
+        for key in (
+            "ref_area_p2_5", "ref_area_p50", "ref_area_p97_5",
+            "ref_nucleus_p2_5", "ref_nucleus_p50", "ref_nucleus_p97_5",
+            "ref_nc_p2_5", "ref_nc_p50", "ref_nc_p97_5",
+        ):
+            stats[key] = float("nan")
 
     # Regression summary
     reg_path = REGRESSION_DIR / "regression_summary.csv"

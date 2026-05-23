@@ -222,8 +222,9 @@
 \begin{abstractbox}
 This report describes the \textbf{size and shape of frog blood cells}
 measured from microscopy images. We focus on cells that passed an
-automatic quality check and were labelled \textbf{good} for analysis.
-Cells labelled bad or rejected were not included in the size summaries.
+automatic quality check (with AI model) and were labelled \textbf{good}
+for analysis. Cells labelled bad or rejected were not included in the
+size summaries.
 
 The dataset covers \textbf{479 frogs} and \textbf{7,214 images}. In
 total, \textbf{383,915} detected cells were scored; \textbf{57,520}
@@ -274,9 +275,10 @@ image using \textbf{Cellpose} (membrane/nucleus masks). Each connected
 region in the cell mask is treated as one candidate cell.
 
 \textbf{Quality classification.} Every cell crop was scored by a trained
-\textbf{ResNet18} classifier, which outputs \textbf{p(good)} --- the
-model's estimated probability that the cell quality is good enough to
-measure. We used \textbf{selective rejection} with three outcomes:
+\textbf{ResNet18} (our AI model) classifier, which outputs
+\textbf{p(good)} --- the model's estimated probability that the cell
+quality is good enough to measure. We used \textbf{selective rejection}
+with three outcomes:
 
 \begin{keystats}
 \begin{itemize}
@@ -307,9 +309,9 @@ this report.
   \textbf{Cell area} (\(\mu\)m\(^2\)) and \textbf{long / short diameter}
   (\(\mu\)m)
 \item
-  \textbf{Nucleus area and axes}, \textbf{N/C ratio} (nucleus area
-  \(\div\) cell area), and \textbf{axis ratio} (major \(\div\) minor
-  axis)
+  \textbf{Nucleus area and long / short diameter}, \textbf{N/C ratio}
+  (nucleus area \(\div\) cell area), and \textbf{axis ratio} (long
+  \(\div\) short axis)
 \end{itemize}
 \end{keystats}
 
@@ -384,6 +386,21 @@ distributions track each other closely.
 \caption{Cell diameter distribution}
 \end{figure}
 
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Long axis (major): 24.52 \(\mu\)m} (IQR 22.79--26.78
+  \(\mu\)m).
+\item
+  \textbf{Short axis (minor): 15.23 \(\mu\)m} (IQR 14.16--16.44
+  \(\mu\)m).
+\item
+  \textbf{Axis ratio (major \(\div\) minor): median 1.62} --- values
+  above 1 mean the cell is elongated.
+\end{itemize}
+\end{keystats}
+
 \section{Nucleus size distribution}\label{nucleus-size-distribution}
 
 \begin{figure}[H]
@@ -391,6 +408,19 @@ distributions track each other closely.
 \includegraphics[width=0.98\linewidth]{./figures/NucleusDistribution.png}
 \caption{Nucleus distribution}
 \end{figure}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Nucleus area: 39.06 \(\mu\)m\(^2\)} (IQR 34.79--46.13
+  \(\mu\)m\(^2\)); \textbf{57,218} good cells with a matched nucleus
+  mask.
+\item
+  \textbf{Nucleus long axis: 8.96 \(\mu\)m}; \textbf{short axis: 5.66
+  \(\mu\)m} (medians across matched cells).
+\end{itemize}
+\end{keystats}
 
 \section{Nucleus-to-cell area ratio
 (N/C)}\label{nucleus-to-cell-area-ratio-nc}
@@ -697,6 +727,14 @@ Cell axis ratio & 1.25 & 1.62 & 2.08 \\
 \end{longtable}
 \end{scitable}
 }
+
+The table above summarises \textbf{central 95\% reference intervals}
+(2.5th--97.5th percentile) for good cells in this cohort. \textbf{Cell
+area} spans \textbf{200.90--463.10 \(\mu\)m\(^2\)} (median
+\textbf{290.69 \(\mu\)m\(^2\)}). Among cells with a matched nucleus,
+\textbf{nucleus area} falls between \textbf{28.57} and \textbf{63.36
+\(\mu\)m\(^2\)} (median \textbf{39.06 \(\mu\)m\(^2\)}), and \textbf{N/C
+ratio} between \textbf{0.09} and \textbf{0.21} (median \textbf{0.13}).
 
 \section{Frog summary snapshot}\label{frog-summary-snapshot}
 

@@ -6,7 +6,7 @@ date: "23 May 2026"
 # Abstract
 
 This report describes the **size and shape of frog blood cells** measured from microscopy
-images. We focus on cells that passed an automatic quality check and were labelled **good**
+images. We focus on cells that passed an automatic quality check (with AI model) and were labelled **good**
 for analysis. Cells labelled bad or rejected were not included in the size summaries.
 
 The dataset covers **479 frogs** and **7,214 images**. In total,
@@ -47,7 +47,7 @@ ratio).
 (membrane/nucleus masks).
 Each connected region in the cell mask is treated as one candidate cell.
 
-**Quality classification.** Every cell crop was scored by a trained **ResNet18**
+**Quality classification.** Every cell crop was scored by a trained **ResNet18** (our AI model)
 classifier, which outputs **p(good)** — the model’s estimated probability that the
 cell quality is good enough to measure. We used **selective rejection** with three
 outcomes:
@@ -63,8 +63,8 @@ were bad. **Only good cells** enter the size results in this report.
 **Morphometry.** For each good cell we measured:
 
 - **Cell area** ($\mu$m$^2$) and **long / short diameter** ($\mu$m)
-- **Nucleus area and axes**, **N/C ratio** (nucleus area $\div$
-  cell area), and **axis ratio** (major $\div$ minor axis)
+- **Nucleus area and long / short diameter**, **N/C ratio** (nucleus area $\div$
+  cell area), and **axis ratio** (long $\div$ short axis)
 
 Pixel measurements were converted to $\mu$m using the **pixel size read from each image’s
 metadata** (OME-TIFF / TIFF), when available.
@@ -105,9 +105,16 @@ distributions track each other closely.
 
 ![Cell diameter distribution](./figures/DiameterDistribution.png)
 
+- **Long axis (major): 24.52 $\mu$m** (IQR 22.79--26.78 $\mu$m).
+- **Short axis (minor): 15.23 $\mu$m** (IQR 14.16--16.44 $\mu$m).
+- **Axis ratio (major $\div$ minor): median 1.62** — values above 1 mean the cell is elongated.
+
 # Nucleus size distribution
 
 ![Nucleus distribution](./figures/NucleusDistribution.png)
+
+- **Nucleus area: 39.06 $\mu$m$^2$** (IQR 34.79--46.13 $\mu$m$^2$); **57,218** good cells with a matched nucleus mask.
+- **Nucleus long axis: 8.96 $\mu$m**; **short axis: 5.66 $\mu$m** (medians across matched cells).
 
 # Nucleus-to-cell area ratio (N/C)
 
@@ -238,6 +245,13 @@ Normative percentile ranges for good-cell morphology:
 | Nucleus area (µm²) | 28.57 | 39.06 | 63.36 |
 | N/C area ratio | 0.09 | 0.13 | 0.21 |
 | Cell axis ratio | 1.25 | 1.62 | 2.08 |
+
+The table above summarises **central 95% reference intervals** (2.5th--97.5th percentile) for
+good cells in this cohort. **Cell area** spans **200.90--463.10 $\mu$m$^2$**
+(median **290.69 $\mu$m$^2$**). Among cells with a matched nucleus, **nucleus area**
+falls between **28.57** and **63.36 $\mu$m$^2$** (median
+**39.06 $\mu$m$^2$**), and **N/C ratio** between **0.09** and
+**0.21** (median **0.13**).
 
 # Frog summary snapshot
 
