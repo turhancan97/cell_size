@@ -1,0 +1,724 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+  english,
+]{article}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb}
+% section numbering enabled in preamble
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{longtable,booktabs,array}
+\newcounter{none} % for unnumbered tables
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+\ifLuaTeX
+\usepackage[bidi=basic,shorthands=off]{babel}
+\else
+\usepackage[bidi=default,shorthands=off]{babel}
+\fi
+\ifLuaTeX
+  \usepackage{selnolig} % disable illegal ligatures
+\fi
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+% Appended by build_report_latex.py (after pandoc header). Tectonic-compatible.
+
+\usepackage{xcolor}
+\definecolor{ReportAccent}{HTML}{1F4E79}
+\definecolor{ReportMuted}{HTML}{5B6770}
+\definecolor{ReportLight}{HTML}{E8F1F8}
+
+\PassOptionsToPackage{colorlinks=true,linkcolor=ReportAccent,urlcolor=ReportAccent,citecolor=ReportAccent}{hyperref}
+
+\usepackage{float}
+\usepackage[margin=2.2cm, headheight=15pt]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\floatplacement{figure}{H}
+
+\graphicspath{{figures/}}
+
+% Numbered sections with accent colour and rule
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{ReportAccent}}
+  {\thesection}{0.75em}{}
+  [\vspace{0.15em}{\color{ReportAccent!35}\titlerule[0.6pt]}]
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{ReportAccent!85!black}}
+  {\thesubsection}{0.6em}{}
+
+\titlespacing*{\section}{0pt}{1.6em}{0.8em}
+\titlespacing*{\subsection}{0pt}{1.2em}{0.5em}
+
+% Figures
+\captionsetup{
+  font=small,
+  labelfont={bf,color=ReportAccent},
+  format=plain,
+  labelsep=period,
+  skip=8pt,
+  singlelinecheck=false,
+}
+
+% Abstract panel
+\newtcolorbox{abstractbox}{
+  enhanced,
+  colback=ReportLight,
+  colframe=ReportAccent,
+  boxrule=0.8pt,
+  arc=2pt,
+  left=12pt,
+  right=12pt,
+  top=10pt,
+  bottom=10pt,
+  before skip=0.5em,
+  after skip=1.2em,
+  before upper={\setlength{\parskip}{0.85em}},
+}
+
+% Headline statistics
+\newtcolorbox{keystats}{
+  enhanced,
+  colback=ReportLight!45,
+  colframe=ReportAccent!55,
+  boxrule=0.5pt,
+  arc=2pt,
+  left=10pt,
+  right=10pt,
+  top=8pt,
+  bottom=8pt,
+  before skip=0.6em,
+  after skip=1em,
+}
+\newenvironment{keystatslist}{%
+  \begin{itemize}[leftmargin=1.2em, itemsep=0.25em, topsep=0.2em, parsep=0pt]
+}{%
+  \end{itemize}
+}
+
+% Compact scientific tables
+\newenvironment{scitable}{%
+  \par\vspace{0.4em}
+  \begin{center}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \renewcommand{\arraystretch}{1.25}
+}{%
+  \end{center}
+  \par\vspace{0.6em}
+}
+
+\captionsetup[table]{font=small, labelfont=bf, skip=6pt}
+
+% Running header / footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{ReportMuted}\nouppercase{\leftmark}}
+\fancyhead[R]{\small\color{ReportMuted}\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\headrule}{\color{ReportAccent!30}\hrule width\headwidth height 0.4pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}
+  \fancyfoot[C]{\small\color{ReportMuted}\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+\newcommand{\um}{\,\text{$\mu$m}}
+\newcommand{\umsq}{\,\text{$\mu$m}^2}
+
+\setcounter{secnumdepth}{2}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Cell Classifier and Cell Size Report},
+  pdflang={en},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Cell Classifier and Cell Size Report}
+\author{}
+\date{23 May 2026}
+
+\begin{document}
+\begin{titlepage}
+\thispagestyle{empty}
+\centering
+\vspace*{2.2cm}
+{\color{ReportAccent}\rule{\textwidth}{2pt}\par}
+\vspace{1.4cm}
+{\Huge\bfseries\color{ReportAccent} Cell Classifier and Cell Size Report\par}
+\vspace{1.2cm}
+{\large\color{ReportMuted} Automatic quality filtering and morphometry across frogs\par}
+\vfill
+{\large 23 May 2026\par}
+\vspace{2cm}
+{\color{ReportAccent}\rule{\textwidth}{2pt}\par}
+\end{titlepage}
+\setcounter{page}{1}
+
+\section{Summary}\label{summary}
+\begin{abstractbox}
+We trained a deep-learning model (ResNet18 backbone) that looks at every
+segmented cell and decides whether it is a \textbf{good} cell worth
+measuring or a \textbf{bad} segmentation that should be thrown away. On
+an independent test set of \textbf{1,300} cells the model performs
+strongly: it correctly accepts good cells \textbf{94.71\%} of the time
+and correctly discards bad cells \textbf{98.65\%} of the time, with
+overall accuracy \textbf{98.08\%}. With \textbf{selective rejection}
+(allowing the model to defer uncertain cells), the accepted subset
+reaches \textbf{98.67\%} accuracy at \textbf{98.00\%} coverage.
+
+Applying this filter to the full imaging dataset yields \textbf{57,520}
+good cells from \textbf{479} frogs for morphometry. The typical (median)
+cell covers \textbf{290.69 \(\mu\)m\(^2\)}, with median N/C ratio
+\textbf{0.13}. Per-frog mean cell area spans \textbf{212.55--482.23
+\(\mu\)m\(^2\)}. Nucleus--cell scaling is negatively allometric (nucleus
+grows slower than cell area; larger cells are relatively less
+nucleus-dense).
+\end{abstractbox}
+
+\section{Part A --- Baseline classifier (single decision
+threshold)}\label{part-a-baseline-classifier-single-decision-threshold}
+
+\subsubsection{How it decides}\label{how-it-decides}
+
+The classifier outputs a probability \texttt{p(good)} between 0 and 1
+for every cell. In \textbf{baseline mode} we keep the cell if
+\textbf{p(good) \(\geq\) 0.50} and discard it otherwise. No cells are
+deferred.
+
+\subsubsection{Headline metrics on the test
+split}\label{headline-metrics-on-the-test-split}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}ll@{}}
+\toprule\noalign{}
+Metric & Value \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Accuracy & \textbf{98.08\%} \\
+Recall (sensitivity to good cells) & \textbf{94.71\%} \\
+Precision & \textbf{92.27\%} \\
+F1 & \textbf{93.47\%} \\
+Specificity (correctly discarded bad cells) & \textbf{98.65\%} \\
+\end{longtable}
+\end{scitable}
+}
+
+\subsubsection{Confusion matrix --- raw
+counts}\label{confusion-matrix-raw-counts}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}llll@{}}
+\toprule\noalign{}
+True ~Pred & Pred bad & Pred good & Row total \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+True bad & \textbf{1096} (TN) & \textbf{15} (FP) & 1111 \\
+True good & \textbf{10} (FN) & \textbf{179} (TP) & 189 \\
+\end{longtable}
+\end{scitable}
+}
+
+\subsubsection{Confusion matrix --- row-normalized
+(\%)}\label{confusion-matrix-row-normalized}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+True ~Pred & Pred bad & Pred good \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+True bad & 98.65\% & 1.35\% \\
+True good & 5.29\% & 94.71\% \\
+\end{longtable}
+\end{scitable}
+}
+
+\textbf{Interpretation.} When the model says a cell is good, it is right
+about \textbf{92.27\%} of the time. About \textbf{94.71\%} of truly good
+cells are kept.
+
+\subsubsection{Qualitative examples --- what the model is
+seeing}\label{qualitative-examples-what-the-model-is-seeing}
+
+Each panel shows up to 20 randomly sampled test cells from that
+category, with the model's \texttt{p(good)} printed above each cell.
+
+\textbf{Correctly kept good cells (true positives):}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/TruePositive.png}
+\caption{True Positive examples}
+\end{figure}
+
+\textbf{Correctly discarded bad cells (true negatives):}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/TrueNegative.png}
+\caption{True Negative examples}
+\end{figure}
+
+\textbf{Bad cells kept by mistake (false positives):}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/FalsePositive.png}
+\caption{False Positive examples}
+\end{figure}
+
+\textbf{Good cells rejected by mistake (false negatives):}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/FalseNegative.png}
+\caption{False Negative examples}
+\end{figure}
+
+\section{Part B --- Adding a ``not sure'' option (selective
+rejection)}\label{part-b-adding-a-not-sure-option-selective-rejection}
+
+Baseline mode always produces an answer. For biology it is sometimes
+safer to defer the most ambiguous crops.
+
+\subsubsection{How it decides}\label{how-it-decides-1}
+
+We split the probability axis into three zones using two thresholds
+(after temperature scaling with T = \textbf{1.8838}):
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{p(good) \(\leq\) 0.1} \(\rightarrow\) \textbf{bad} (accepted
+  as bad)
+\item
+  \textbf{p(good) \(\geq\) 0.76} \(\rightarrow\) \textbf{good} (accepted
+  as good)
+\item
+  \textbf{0.1 \textless{} p(good) \textless{} 0.76} \(\rightarrow\)
+  \textbf{rejected / unsure} (deferred)
+\end{itemize}
+\end{keystats}
+
+\subsubsection{Headline metrics --- baseline vs selective (test
+split)}\label{headline-metrics-baseline-vs-selective-test-split}
+
+All selective-rejection metrics below are computed \textbf{only on cells
+the model accepted.}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Metric & Baseline & Selective rejection (accepted only) \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Coverage (cells that got a decision) & 100.00\% & \textbf{98.00\%} \\
+Accuracy & 98.08\% & \textbf{98.67\%} \\
+Recall & 94.71\% & \textbf{97.27\%} \\
+Precision & 92.27\% & \textbf{93.68\%} \\
+F1 & 93.47\% & \textbf{95.44\%} \\
+Specificity & 98.65\% & \textbf{98.90\%} \\
+False positives (kept by mistake) & 15 & \textbf{12} \\
+False negatives (missed good cells) & 10 & \textbf{5} \\
+\end{longtable}
+\end{scitable}
+}
+
+\subsubsection{Coverage and rejection
+summary}\label{coverage-and-rejection-summary}
+
+\begin{itemize}
+\tightlist
+\item
+  Accepted: \textbf{1,274 / 1,300} cells (\textbf{98.00\%})
+\item
+  Rejected / unsure: \textbf{26 / 1,300}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Among rejected: \textbf{6} truly good, \textbf{20} truly bad
+  \end{itemize}
+\end{itemize}
+
+\textbf{Intuition.} False negatives drop from \textbf{10} to \textbf{5}
+under selective rejection; false positives from \textbf{15} to
+\textbf{12}.
+
+\subsubsection{Accepted-only confusion matrix ---
+counts}\label{accepted-only-confusion-matrix-counts}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}llll@{}}
+\toprule\noalign{}
+True ~Pred (accepted) & Pred bad & Pred good & Row total \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+True bad & \textbf{1079} (TN) & \textbf{12} (FP) & 1091 \\
+True good & \textbf{5} (FN) & \textbf{178} (TP) & 183 \\
+\end{longtable}
+\end{scitable}
+}
+
+\subsubsection{Accepted-only confusion matrix --- row-normalized
+(\%)}\label{accepted-only-confusion-matrix-row-normalized}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+True ~Pred (accepted) & Pred bad & Pred good \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+True bad & 98.90\% & 1.10\% \\
+True good & 2.73\% & 97.27\% \\
+\end{longtable}
+\end{scitable}
+}
+
+\subsubsection{Qualitative examples under the selective
+policy}\label{qualitative-examples-under-the-selective-policy}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/AcceptedGood.png}
+\caption{Accepted good examples}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/AcceptedBad.png}
+\caption{Accepted bad examples}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/RejectedUncertain.png}
+\caption{Rejected uncertain examples}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/AcceptedFalsePositive.png}
+\caption{Accepted false-positive examples}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/AcceptedFalseNegative.png}
+\caption{Accepted false-negative examples}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/Threshold.png}
+\caption{Threshold histogram}
+\end{figure}
+
+\subsubsection{What improved}\label{what-improved}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Recall} improved (\textbf{94.71\%} \(\rightarrow\)
+  \textbf{97.27\%}) on accepted cells.
+\item
+  \textbf{Precision} improved (\textbf{92.27\%} \(\rightarrow\)
+  \textbf{93.68\%}).
+\item
+  \textbf{Accuracy} reached \textbf{98.67\%} on the accepted subset at
+  \textbf{98.00\%} coverage.
+\end{itemize}
+\end{keystats}
+
+\section{Part C --- Biological results on the full
+dataset}\label{part-c-biological-results-on-the-full-dataset}
+
+After running the model with selective rejection on the full imaging
+dataset:
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{383,915} detections were scored across all images.
+\item
+  \textbf{57,520} were accepted as \textbf{good} and measured
+  (\textbf{15.0\%} yield).
+\item
+  \textbf{57,218} good cells have a matched nucleus for N/C and
+  regression analyses.
+\end{itemize}
+\end{keystats}
+
+\subsection{C1. Cell-area distribution (good cells
+only)}\label{c1.-cell-area-distribution-good-cells-only}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/AreaDistribution.png}
+\caption{Cell area distribution}
+\end{figure}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Median cell area: 290.69 \(\mu\)m\(^2\)} (IQR 257.70--335.48
+  \(\mu\)m\(^2\)).
+\item
+  \textbf{Mean \(\pm\) SD: 303.10 \(\pm\) 67.07 \(\mu\)m\(^2\).}
+\end{itemize}
+\end{keystats}
+
+\subsection{C2. Cell-diameter distribution (good cells
+only)}\label{c2.-cell-diameter-distribution-good-cells-only}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/DiameterDistribution.png}
+\caption{Cell diameter distribution}
+\end{figure}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Long axis (major): 24.52 \(\mu\)m} (IQR 22.79--26.78
+  \(\mu\)m).
+\item
+  \textbf{Short axis (minor): 15.23 \(\mu\)m} (IQR 14.16--16.44
+  \(\mu\)m).
+\item
+  \textbf{Axis ratio (major \(\div\) minor): median 1.62}.
+\end{itemize}
+\end{keystats}
+
+\subsection{C3. Nucleus size
+distribution}\label{c3.-nucleus-size-distribution}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NucleusDistribution.png}
+\caption{Nucleus distribution}
+\end{figure}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Nucleus area: 39.06 \(\mu\)m\(^2\)} (IQR 34.79--46.13
+  \(\mu\)m\(^2\)).
+\item
+  \textbf{Long / short axis medians: 8.96 / 5.66 \(\mu\)m}.
+\end{itemize}
+\end{keystats}
+
+\subsection{C4. Nucleus-to-cell area ratio (N/C
+ratio)}\label{c4.-nucleus-to-cell-area-ratio-nc-ratio}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NCRatioDistribution.png}
+\caption{N/C ratio distribution}
+\end{figure}
+
+\begin{keystats}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Median N/C ratio: 0.13} (about 13\% of cell area).
+\item
+  \textbf{Mean \(\pm\) SD: 0.14 \(\pm\) 0.04}.
+\end{itemize}
+\end{keystats}
+
+\subsection{C5. Per-frog variation in mean cell
+area}\label{c5.-per-frog-variation-in-mean-cell-area}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/PerFrogBoxplot.png}
+\caption{Per-frog cell-area boxplot}
+\end{figure}
+
+Per-frog boxplot of cell area (top-40 frogs by cell count, sorted by
+per-frog median cell area). Per-frog mean cell area spans
+\textbf{212.55--482.23 \(\mu\)m\(^2\)}; typical frog's average
+\textbf{290.34 \(\mu\)m\(^2\)}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/PerFrogNucleusBoxplot.png}
+\caption{Per-frog nucleus-area boxplot}
+\end{figure}
+
+Same frogs and ordering for nucleus area.
+
+\subsection{C6. Does the nucleus scale with cell size?
+(regression)}\label{c6.-does-the-nucleus-scale-with-cell-size-regression}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{./figures/NucleusVsCellRegression.png}
+\caption{Nucleus area vs cell area regression}
+\end{figure}
+
+We fit a regression in \textbf{log--log space}. A slope of \textbf{1} is
+isometric scaling; \textbf{below 1} is negative allometry.
+\textbf{Pooled OLS slope: 0.526} (R\(^2\) = 0.255);
+\textbf{mixed-effects slope: 0.149} (random intercept per frog). Scaling
+is negatively allometric (nucleus grows slower than cell area; larger
+cells are relatively less nucleus-dense).
+
+\section{Discussion}\label{discussion}
+
+This report combines \textbf{classifier validation} on a held-out test
+set with \textbf{morphometry} on the full cohort after selective
+rejection. On the test split, baseline accuracy is \textbf{98.08\%};
+selective rejection improves accepted-only accuracy to \textbf{98.67\%}
+while deferring \textbf{26} ambiguous cells (\textbf{98.00\%} coverage).
+That trade-off is appropriate when morphometry should describe only
+cells the model judged with confidence.
+
+On the full dataset, \textbf{15.0\%} of scored detections were accepted
+as good (median per-frog yield \textbf{17.7\%}). Morphometric summaries
+therefore describe the \textbf{accepted subset}, not every segmented
+object. Frogs with low yield may be under-represented.
+
+Cell size varies substantially between frogs (ICC \textbf{0.661};
+per-frog mean area \textbf{212.55--482.23 \(\mu\)m\(^2\)}).
+Nucleus--cell scaling is negatively allometric (nucleus grows slower
+than cell area; larger cells are relatively less nucleus-dense): larger
+cells tend to have proportionally smaller nuclei (lower N/C). The mixed
+slope (\textbf{0.149}) is smaller than the pooled OLS slope
+(\textbf{0.526}), reflecting that much nucleus--cell correlation is
+\textbf{between frogs}, not only within them.
+
+\section{Glossary}\label{glossary}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{scitable}
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.4000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.6000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Term
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Meaning
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Good cell} & A segmented cell accepted by the quality classifier
+for morphometry. \\
+\textbf{Bad cell} & A segmentation rejected as poor quality. \\
+\textbf{Selective rejection} & Three-way policy: accept as good, accept
+as bad, or defer as uncertain. \\
+\textbf{Coverage} & Fraction of test cells that received a good/bad
+decision (not deferred). \\
+\textbf{Accuracy} & Fraction of all labelled cells classified
+correctly. \\
+\textbf{Recall} & Of truly good cells, fraction the model kept. \\
+\textbf{Precision} & Of cells called good, fraction that are truly
+good. \\
+\textbf{Specificity} & Of truly bad cells, fraction the model
+discarded. \\
+\textbf{F1} & Harmonic mean of precision and recall. \\
+\textbf{N/C ratio} & Nucleus area divided by cell area (unitless). \\
+\textbf{Yield / good fraction} & Share of scored detections accepted as
+good. \\
+\textbf{ICC} & Share of cell-area variation explained by which frog a
+cell came from. \\
+\textbf{Allometry} & How nucleus size scales with cell size; slope = 1
+is isometric, \textless{} 1 is negative allometry. \\
+\textbf{Temperature scaling} & Post-hoc calibration of classifier
+probabilities. \\
+\end{longtable}
+\end{scitable}
+}
+
+\end{document}

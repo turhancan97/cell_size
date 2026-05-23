@@ -465,6 +465,35 @@ def save_nc_ratio_vs_area(area_df: pd.DataFrame, figures_dir: Path | None = None
     return path
 
 
+def write_report_c_figures(
+    area_df: pd.DataFrame | None = None,
+    frog_df: pd.DataFrame | None = None,
+    figures_dir: Path | None = None,
+) -> None:
+    """Figures for Part C (C1--C6) of the combined report only."""
+    out_dir = figures_dir or FIGURES_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if area_df is None:
+        area_df = pd.read_csv(FILTERED_AREAS_CSV)
+    if frog_df is None:
+        frog_df = pd.read_csv(FROG_METRICS_CSV) if FROG_METRICS_CSV.is_file() else pd.DataFrame()
+
+    save_area_distribution(area_df, out_dir)
+    save_diameter_distribution(area_df, out_dir)
+    save_nucleus_distribution(area_df, out_dir)
+    save_nc_ratio_distribution(area_df, out_dir)
+    save_per_frog_boxplot(area_df, out_dir)
+    fit = _ols_fit_log(area_df, "area_um2", "nucleus_area_um2")
+    if fit.get("ok"):
+        fig, ax = plt.subplots(figsize=(11, 6))
+        _plot_regression_scatter(fit, fit.get("mixed"), "Nucleus area vs cell area", ax)
+        fig.tight_layout()
+        path = out_dir / "NucleusVsCellRegression.png"
+        fig.savefig(path, dpi=FIG_DPI, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[ok] wrote {path.relative_to(REPO_ROOT)}")
+
+
 def write_all(
     area_df: pd.DataFrame | None = None,
     frog_df: pd.DataFrame | None = None,

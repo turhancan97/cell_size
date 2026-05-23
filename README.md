@@ -398,10 +398,29 @@ classify_output/
 Frog IDs are parsed from image names using `TIFF_AH_<frog_id>_<image_idx>`
 (for example: `TIFF_AH_001_04 -> 1`, `TIFF_AH_476_10 -> 476`).
 
-### Biology report (LaTeX/PDF)
+### Combined report (classifier + biology, LaTeX/PDF)
 
-After classification on the full dataset, build a biology-only PDF from
-`notebooks/filtered_area_analysis.ipynb` outputs:
+The primary deliverable is **`notebooks/report.pdf`**: classifier validation
+(Parts A & B) plus compact biology results (Part C1–C6), Discussion, and Glossary.
+
+```bash
+conda activate cell-size
+python notebooks/build_report.py
+python notebooks/build_report.py --no-figures
+python notebooks/build_report.py --no-figures --skip-classifier-inference
+python notebooks/build_report.py --skip-fill          # compile existing report.md
+```
+
+This regenerates classifier + Part C figures (`notebooks/figures/`), fills
+`notebooks/report.md` from `report.md.template`, and writes `report.tex` /
+`report.pdf`. Classifier metrics are cached in
+`classify_output/analysis/classifier_stats.json` (use `--skip-classifier-inference`
+when torch is unavailable).
+
+### Biology-only report (extended LaTeX/PDF)
+
+For the extended biology deep-dive (Methods, yield, reference intervals, etc.),
+build **`notebooks/report_biology.pdf`** separately:
 
 ```bash
 conda activate cell-size

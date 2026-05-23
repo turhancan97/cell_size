@@ -1,20 +1,10 @@
-"""Regenerate every figure referenced by notebooks/report.md / report.html.
+"""Regenerate every figure referenced by notebooks/report.md / report.pdf.
 
-This script is authored to be a single source of truth for the biologist-
-facing report. It:
+This script is the single source of truth for the biologist-facing combined report. It:
 
-    1. Loads the best classifier checkpoint (SqueezeNet1.1, full fine-tune)
-       and runs inference on the held-out test split of cell crops.
-    2. Saves qualitative example panels used in Part A of the report:
-       TruePositive.png, TrueNegative.png, FalsePositive.png, FalseNegative.png
-    3. Applies temperature scaling + selective-rejection thresholds
-       (t_bad, t_good) chosen on the validation split (see
-       classifier_selective_rejection_eda.ipynb) and saves Part B panels:
-       AcceptedGood.png, AcceptedBad.png, AcceptedFalsePositive.png,
-       AcceptedFalseNegative.png, RejectedUncertain.png, Threshold.png
-    4. Reads classify_output/filtered_areas.csv and
-       classify_output/frog_aggregated_metrics.csv and produces the
-       biology figures (via biology_plots.py) used in Part C / LaTeX report.
+    1. Loads the best classifier checkpoint and runs inference on the held-out test split.
+    2. Saves qualitative example panels for Part A and Part B.
+    3. Produces Part C biology figures via biology_plots.write_report_c_figures.
 
 Run from the repo root:
 
@@ -23,6 +13,8 @@ Run from the repo root:
     python notebooks/make_report_figures.py --biology-only
 
 All figures are written to notebooks/figures/.
+
+For the full PDF pipeline, prefer: python notebooks/build_report.py
 """
 
 from __future__ import annotations
@@ -35,16 +27,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn.functional as F
-from matplotlib.patches import Patch
 from PIL import Image
-from sklearn.metrics import confusion_matrix
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.datasets import ImageFolder
 
 from biology_plots import write_all as write_biology_figures
+from biology_plots import write_report_c_figures
+from classifier_stats import (
+    CHECKPOINT_PATH,
+    T_BAD,
+    T_GOOD,
+    TEMPERATURE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -56,21 +48,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 FIGURES_DIR = REPO_ROOT / "notebooks" / "figures"
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
-# Best model (from classifier_model_eda.ipynb and selective_rejection notebook).
-CHECKPOINT_PATH = (
-    REPO_ROOT
-    / "classifier_output"
-    / "run_2"
-    / "best_model.pt"
-)
+# Best model checkpoint (ResNet18, run_2).
+CHECKPOINT_PATH = CHECKPOINT_PATH  # re-export for backwards compatibility
 CROPS_ROOT = REPO_ROOT / "classifier_output" / "crops" / "mask_bg_false"
 
-# Selective-rejection thresholds selected on VAL (notebook cell output).
-# (See classifier_selective_rejection_eda.ipynb cells 12 & 14.)
+# Selective-rejection thresholds (see classifier_selective_rejection_eda.ipynb).
 BASELINE_THRESHOLD = 0.5
-T_BAD = 0.10
-T_GOOD = 0.76
-TEMPERATURE = 1.8838  # fitted on val logits in the notebook
 
 # Biology inputs.
 FILTERED_AREAS_CSV = REPO_ROOT / "classify_output" / "filtered_areas.csv"
@@ -81,27 +64,19 @@ RANDOM_SEED = 42
 BATCH_SIZE = 128
 NUM_WORKERS = 4
 N_EXAMPLES_PER_GROUP = 20
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+    try:
+        import torch
 
-
-class ImageFolderWithPaths(ImageFolder):
-    def __getitem__(self, index):
-        image, target = super().__getitem__(index)
-        path, _ = self.samples[index]
-        return image, target, path
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except ImportError:
+        pass
 
 
 def load_rgb(path: str | Path) -> np.ndarray:
@@ -152,82 +127,43 @@ def sample_rows(df: pd.DataFrame, n: int, seed: int) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def run_classifier_inference() -> pd.DataFrame:
-    """Load checkpoint, run inference on test split, return per-sample df."""
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    from cell_size.classifier.models import build_model  # noqa: E402
+def save_classifier_panels(df: pd.DataFrame) -> None:
+    """Part A + Part B classifier example panels and threshold plot."""
+    save_baseline_panels(df)
+    save_selective_panels(df)
+    save_threshold_plot(df)
+    print_classifier_summary(df)
 
-    print(f"[info] loading checkpoint: {CHECKPOINT_PATH}")
-    ckpt = torch.load(str(CHECKPOINT_PATH), map_location=DEVICE, weights_only=False)
-    encoder = ckpt["encoder"]
-    crop_size = int(ckpt.get("crop_size", 224))
-    print(f"[info] encoder={encoder}  crop_size={crop_size}  device={DEVICE}")
 
-    model = build_model(encoder=encoder, pretrained=False, freeze_encoder=False)
-    model.load_state_dict(ckpt["model_state_dict"])
-    model.to(DEVICE)
-    model.eval()
+def generate_all_report_figures() -> None:
+    """Regenerate all figures for the combined LaTeX report."""
+    from classifier_stats import run_classifier_inference
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    from cell_size.classifier.dataset import IMAGENET_MEAN, IMAGENET_STD  # noqa: E402
+    set_seed(RANDOM_SEED)
 
-    eval_transform = transforms.Compose(
-        [
-            transforms.Resize((crop_size, crop_size)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ]
-    )
-    test_dir = CROPS_ROOT / "test"
-    ds = ImageFolderWithPaths(str(test_dir), transform=eval_transform)
-    print(f"[info] loaded {len(ds)} test samples from {test_dir}")
-    print(f"[info] class_to_idx={ds.class_to_idx}")
-    good_idx = ds.class_to_idx["good"]
+    if CHECKPOINT_PATH.exists():
+        df = run_classifier_inference()
+        save_classifier_panels(df)
+    else:
+        print(f"[warn] checkpoint not found at {CHECKPOINT_PATH} — skipping classifier figures")
 
-    loader = DataLoader(
-        ds,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=NUM_WORKERS,
-        pin_memory=torch.cuda.is_available(),
-    )
+    if not FILTERED_AREAS_CSV.exists():
+        print(f"[warn] biology CSV missing — looked for\n  {FILTERED_AREAS_CSV}")
+        return
 
-    rows = []
-    with torch.no_grad():
-        for images, targets, paths in loader:
-            logits = model(images.to(DEVICE)).squeeze(1).cpu().numpy()
-            probs_good = 1.0 / (1.0 + np.exp(-logits))
-            probs_good_cal = 1.0 / (1.0 + np.exp(-logits / TEMPERATURE))
-            y_true = (targets.numpy() == good_idx).astype(int)
-            for path, yt, pg, pg_cal in zip(paths, y_true, probs_good, probs_good_cal):
-                rows.append(
-                    {
-                        "path": path,
-                        "y_true": int(yt),
-                        "p_good": float(pg),
-                        "p_good_cal": float(pg_cal),
-                    }
-                )
+    area_df = pd.read_csv(FILTERED_AREAS_CSV)
+    frog_df = pd.read_csv(FROG_METRICS_CSV) if FROG_METRICS_CSV.exists() else pd.DataFrame()
+    print("\n" + "=" * 70)
+    print("Part C biology figures")
+    print("=" * 70)
+    write_report_c_figures(area_df=area_df, frog_df=frog_df, figures_dir=FIGURES_DIR)
+    print_biology_summary(area_df, frog_df)
+    print("\nAll figures written to", FIGURES_DIR.relative_to(REPO_ROOT))
 
-    df = pd.DataFrame(rows)
-    df["y_pred"] = (df["p_good"] >= BASELINE_THRESHOLD).astype(int)
-    df["true_label"] = np.where(df["y_true"] == 1, "good", "bad")
-    df["pred_label"] = np.where(df["y_pred"] == 1, "good", "bad")
-    df["case"] = [
-        "TP" if yt == 1 and yp == 1
-        else "TN" if yt == 0 and yp == 0
-        else "FP" if yt == 0 and yp == 1
-        else "FN"
-        for yt, yp in zip(df["y_true"], df["y_pred"])
-    ]
 
-    accepted = (df["p_good_cal"] <= T_BAD) | (df["p_good_cal"] >= T_GOOD)
-    y_pred_sel = np.full(len(df), -1, dtype=int)
-    y_pred_sel[df["p_good_cal"] <= T_BAD] = 0
-    y_pred_sel[df["p_good_cal"] >= T_GOOD] = 1
-    df["accepted"] = accepted
-    df["y_pred_sel"] = y_pred_sel
-    return df
+# ---------------------------------------------------------------------------
+# Panel helpers
+# ---------------------------------------------------------------------------
 
 
 def save_baseline_panels(df: pd.DataFrame) -> None:
@@ -303,7 +239,9 @@ def save_threshold_plot(df: pd.DataFrame) -> None:
 
 
 def print_classifier_summary(df: pd.DataFrame) -> None:
-    """Log all headline numbers so report.md / report.html can be verified."""
+    """Log all headline numbers so report.md can be verified."""
+    from sklearn.metrics import confusion_matrix
+
     n = len(df)
     n_good = int((df["y_true"] == 1).sum())
     n_bad = int((df["y_true"] == 0).sum())
@@ -356,326 +294,6 @@ def print_classifier_summary(df: pd.DataFrame) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Biology figures
-# ---------------------------------------------------------------------------
-
-
-BIO_COLOR_CELL = "#2a9d8f"
-BIO_COLOR_NUCLEUS = "#264653"
-BIO_COLOR_HIGHLIGHT = "#e76f51"
-
-
-def _hist_with_summary(
-    ax: plt.Axes,
-    values: np.ndarray,
-    color: str,
-    title: str,
-    xlabel: str,
-    bins: int = 40,
-) -> None:
-    values = pd.to_numeric(pd.Series(values), errors="coerce").dropna().to_numpy()
-    ax.hist(values, bins=bins, color=color, alpha=0.85, edgecolor="white", linewidth=0.5)
-    if len(values):
-        med = float(np.median(values))
-        q1, q3 = np.quantile(values, [0.25, 0.75])
-        ax.axvline(med, color="#222", linestyle="--", linewidth=1.3, label=f"median={med:.2f}")
-        ax.axvspan(q1, q3, color="#222", alpha=0.08, label=f"IQR {q1:.2f}–{q3:.2f}")
-        ax.legend(loc="upper right", fontsize=9)
-    ax.set_title(title, fontsize=12)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel("Number of cells")
-
-
-def save_area_distribution(area_df: pd.DataFrame) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.6))
-    _hist_with_summary(
-        axes[0], area_df["area_px"], BIO_COLOR_CELL,
-        "Cell area (pixels)", "area_px",
-    )
-    _hist_with_summary(
-        axes[1], area_df["area_um2"], BIO_COLOR_CELL,
-        "Cell area (µm²)", "area_um2",
-    )
-    fig.suptitle("Cell area distribution (good cells only)", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(FIGURES_DIR / "AreaDistribution.png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print("[ok] wrote figures/AreaDistribution.png")
-
-
-def save_diameter_distribution(area_df: pd.DataFrame) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.6))
-    _hist_with_summary(
-        axes[0], area_df["major_axis_um"], BIO_COLOR_CELL,
-        "Cell long diameter (µm)", "major_axis_um",
-    )
-    _hist_with_summary(
-        axes[1], area_df["minor_axis_um"], BIO_COLOR_CELL,
-        "Cell short diameter (µm)", "minor_axis_um",
-    )
-    fig.suptitle("Cell diameter distribution (good cells only)", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(FIGURES_DIR / "DiameterDistribution.png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print("[ok] wrote figures/DiameterDistribution.png")
-
-
-def save_nucleus_distribution(area_df: pd.DataFrame) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6))
-    _hist_with_summary(
-        axes[0], area_df["nucleus_area_um2"], BIO_COLOR_NUCLEUS,
-        "Nucleus area (µm²)", "nucleus_area_um2",
-    )
-    _hist_with_summary(
-        axes[1], area_df["nucleus_major_axis_um"], BIO_COLOR_NUCLEUS,
-        "Nucleus long diameter (µm)", "nucleus_major_axis_um",
-    )
-    _hist_with_summary(
-        axes[2], area_df["nucleus_minor_axis_um"], BIO_COLOR_NUCLEUS,
-        "Nucleus short diameter (µm)", "nucleus_minor_axis_um",
-    )
-    fig.suptitle("Nucleus size distribution (only cells with a matched nucleus)", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(FIGURES_DIR / "NucleusDistribution.png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print("[ok] wrote figures/NucleusDistribution.png")
-
-
-def save_nc_ratio_distribution(area_df: pd.DataFrame) -> None:
-    fig, ax = plt.subplots(figsize=(9, 4.8))
-    _hist_with_summary(
-        ax, area_df["nc_ratio"], BIO_COLOR_NUCLEUS,
-        "Nucleus-to-cell area ratio (N/C)", "nc_ratio",
-    )
-    fig.suptitle("N/C ratio — how much of the cell is taken up by the nucleus", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
-    fig.savefig(FIGURES_DIR / "NCRatioDistribution.png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print("[ok] wrote figures/NCRatioDistribution.png")
-
-
-def _top_frogs_by_count(area_df: pd.DataFrame, k: int = 40) -> list:
-    """Return the k frog_ids with the most good cells, in that order."""
-    counts = area_df.groupby("frog_id").size()
-    return counts.sort_values(ascending=False).head(k).index.tolist()
-
-
-def _per_frog_boxplot(
-    area_df: pd.DataFrame,
-    value_col: str,
-    frogs_sorted: list,
-    color: str,
-    ylabel: str,
-    title: str,
-    output_name: str,
-) -> None:
-    """Generic per-frog boxplot helper used for both cell area and nucleus area."""
-    sub = area_df[area_df["frog_id"].isin(frogs_sorted)]
-    data = [
-        sub.loc[sub["frog_id"] == fid, value_col].dropna().to_numpy()
-        for fid in frogs_sorted
-    ]
-    sample_counts = [len(d) for d in data]
-
-    fig, ax = plt.subplots(figsize=(14, 5.5))
-    bp = ax.boxplot(
-        data,
-        positions=np.arange(len(frogs_sorted)),
-        widths=0.6,
-        patch_artist=True,
-        showfliers=False,
-    )
-    for patch in bp["boxes"]:
-        patch.set_facecolor(color)
-        patch.set_alpha(0.75)
-        patch.set_edgecolor("#0f172a")
-    for med in bp["medians"]:
-        med.set_color("#0f172a")
-        med.set_linewidth(1.5)
-
-    ax.set_xticks(np.arange(len(frogs_sorted)))
-    ax.set_xticklabels(
-        [f"{fid}\n(n={n})" for fid, n in zip(frogs_sorted, sample_counts)],
-        rotation=60,
-        ha="right",
-        fontsize=7,
-    )
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    ax.grid(axis="y", alpha=0.25)
-    fig.tight_layout()
-    fig.savefig(FIGURES_DIR / output_name, dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print(f"[ok] wrote figures/{output_name}")
-
-
-def save_per_frog_boxplot(area_df: pd.DataFrame) -> None:
-    """Per-frog cell-area boxplot + a matching nucleus-area boxplot.
-
-    The two figures share the same frog ordering (sorted by per-frog median
-    cell area) so they can be read side by side.
-    """
-    if "frog_id" not in area_df.columns:
-        print("[warn] no frog_id column; skipping per-frog boxplots")
-        return
-
-    top_frogs = _top_frogs_by_count(area_df, k=40)
-    sub = area_df[area_df["frog_id"].isin(top_frogs)]
-    medians = sub.groupby("frog_id")["area_um2"].median().sort_values()
-    frogs_sorted = medians.index.tolist()
-
-    _per_frog_boxplot(
-        area_df=area_df,
-        value_col="area_um2",
-        frogs_sorted=frogs_sorted,
-        color=BIO_COLOR_CELL,
-        ylabel="Cell area (µm²)",
-        title=(
-            f"Per-frog cell-area distribution (top-{len(frogs_sorted)} frogs "
-            f"by cell count, sorted by median cell area)"
-        ),
-        output_name="PerFrogBoxplot.png",
-    )
-
-    if "nucleus_area_um2" not in area_df.columns:
-        print("[warn] no nucleus_area_um2 column; skipping PerFrogNucleusBoxplot")
-        return
-
-    _per_frog_boxplot(
-        area_df=area_df,
-        value_col="nucleus_area_um2",
-        frogs_sorted=frogs_sorted,
-        color=BIO_COLOR_NUCLEUS,
-        ylabel="Nucleus area (µm²)",
-        title=(
-            f"Per-frog nucleus-area distribution (same {len(frogs_sorted)} frogs, "
-            f"same ordering as the cell-area boxplot)"
-        ),
-        output_name="PerFrogNucleusBoxplot.png",
-    )
-
-
-def save_per_frog_scatter(frog_df: pd.DataFrame) -> None:
-    """Scatter of per-frog mean area vs. per-frog n_cells, with std as error bars."""
-    if "area_um2_mean" not in frog_df.columns:
-        print("[warn] frog metrics missing area_um2_mean; skipping PerFrogScatter")
-        return
-
-    df = frog_df.dropna(subset=["area_um2_mean"]).copy()
-    fig, ax = plt.subplots(figsize=(11, 5.5))
-    ax.errorbar(
-        df["n_cells"],
-        df["area_um2_mean"],
-        yerr=df.get("area_um2_std"),
-        fmt="o",
-        color=BIO_COLOR_CELL,
-        ecolor="#8ab8b3",
-        elinewidth=0.8,
-        capsize=2,
-        markersize=5,
-        alpha=0.85,
-    )
-
-    overall_median = df["area_um2_mean"].median()
-    overall_mean = df["area_um2_mean"].mean()
-    overall_std = df["area_um2_mean"].std()
-    ax.axhline(overall_median, color="#1a4f49", linestyle="--", linewidth=1.2,
-               label=f"across-frog median = {overall_median:.1f} µm²")
-    ax.axhspan(
-        overall_mean - overall_std, overall_mean + overall_std,
-        color="#1a4f49", alpha=0.08, label=f"across-frog mean ± 1 SD"
-    )
-
-    ax.set_xlabel("Number of good cells measured per frog")
-    ax.set_ylabel("Mean cell area per frog (µm²)")
-    ax.set_title("Cross-frog variability of mean cell area (error bars = within-frog SD)")
-    ax.legend(loc="best", fontsize=10)
-    ax.grid(alpha=0.25)
-    fig.tight_layout()
-    fig.savefig(FIGURES_DIR / "PerFrogScatter.png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print("[ok] wrote figures/PerFrogScatter.png")
-
-
-def save_outlier_frogs(
-    frog_df: pd.DataFrame,
-    area_df: pd.DataFrame,
-) -> None:
-    """Highlight the 5 frogs with the smallest and the 5 with the largest mean cell area."""
-    if "area_um2_mean" not in frog_df.columns:
-        print("[warn] frog metrics missing area_um2_mean; skipping OutlierFrogs")
-        return
-
-    df = frog_df.dropna(subset=["area_um2_mean"]).copy()
-    df = df.sort_values("area_um2_mean")
-    small = df.head(5)["frog_id"].tolist()
-    large = df.tail(5)["frog_id"].tolist()
-
-    overall_median = df["area_um2_mean"].median()
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.2))
-
-    ax1.barh(
-        df["frog_id"].astype(str),
-        df["area_um2_mean"],
-        color="#cbd5e1",
-        edgecolor="#94a3b8",
-    )
-    for fid in small:
-        y = df.index[df["frog_id"] == fid][0]
-        # Positional bar index (barh uses categorical, so use enumerate below).
-    # Re-draw the highlighted bars on top using the positional index.
-    order = df["frog_id"].tolist()
-    for fid, color in list(zip(small, [BIO_COLOR_HIGHLIGHT] * len(small))) + list(
-        zip(large, ["#1d4ed8"] * len(large))
-    ):
-        if fid in order:
-            pos = order.index(fid)
-            ax1.barh([str(fid)], [df.loc[df["frog_id"] == fid, "area_um2_mean"].iloc[0]],
-                     color=color, edgecolor=color)
-    ax1.axvline(overall_median, color="#1a4f49", linestyle="--", linewidth=1.2,
-                label=f"median = {overall_median:.1f} µm²")
-    ax1.set_xlabel("Mean cell area per frog (µm²)")
-    ax1.set_title("Per-frog ranking (orange = smallest 5, blue = largest 5)")
-    ax1.tick_params(axis="y", labelsize=5)
-    ax1.legend(loc="lower right", fontsize=9)
-    ax1.grid(axis="x", alpha=0.2)
-
-    bins = np.linspace(
-        float(area_df["area_um2"].quantile(0.01)),
-        float(area_df["area_um2"].quantile(0.99)),
-        60,
-    )
-    ax2.hist(
-        area_df["area_um2"].dropna(),
-        bins=bins,
-        color="#cbd5e1",
-        alpha=0.6,
-        label="all good cells",
-    )
-    for fid in small + large:
-        color = BIO_COLOR_HIGHLIGHT if fid in small else "#1d4ed8"
-        sub = area_df.loc[area_df["frog_id"] == fid, "area_um2"].dropna()
-        if not len(sub):
-            continue
-        ax2.hist(
-            sub, bins=bins, alpha=0.55, color=color,
-            label=f"frog {fid} (n={len(sub)})",
-        )
-    ax2.set_xlabel("Cell area (µm²)")
-    ax2.set_ylabel("Number of cells")
-    ax2.set_title("Area distribution: outlier frogs vs. the whole dataset")
-    ax2.legend(fontsize=8, loc="upper right")
-    ax2.grid(axis="y", alpha=0.2)
-
-    fig.suptitle("Outlier frogs — worth a manual check", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
-    fig.savefig(FIGURES_DIR / "OutlierFrogs.png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print("[ok] wrote figures/OutlierFrogs.png")
-
-
 def print_biology_summary(area_df: pd.DataFrame, frog_df: pd.DataFrame) -> None:
     print("\n[summary] biology")
     print(f"  good cells in filtered_areas.csv : {len(area_df)}")
@@ -715,7 +333,12 @@ def main() -> None:
     parser.add_argument(
         "--biology-only",
         action="store_true",
-        help="Skip classifier panels; write biology figures only.",
+        help="Skip classifier panels; write all biology figures (biology_plots.write_all).",
+    )
+    parser.add_argument(
+        "--combined-only",
+        action="store_true",
+        help="Classifier panels + Part C figures only (default full run).",
     )
     args = parser.parse_args()
 
@@ -731,32 +354,7 @@ def main() -> None:
         write_biology_figures()
         return
 
-    print("=" * 70)
-    print("Regenerating report figures")
-    print("=" * 70)
-
-    if CHECKPOINT_PATH.exists():
-        df = run_classifier_inference()
-        save_baseline_panels(df)
-        save_selective_panels(df)
-        save_threshold_plot(df)
-        print_classifier_summary(df)
-    else:
-        print(f"[warn] checkpoint not found at {CHECKPOINT_PATH} — skipping classifier figures")
-
-    print("\n" + "=" * 70)
-    print("Biology figures")
-    print("=" * 70)
-    if not FILTERED_AREAS_CSV.exists():
-        print(f"[warn] biology CSV missing — looked for\n  {FILTERED_AREAS_CSV}")
-        return
-
-    area_df = pd.read_csv(FILTERED_AREAS_CSV)
-    frog_df = pd.read_csv(FROG_METRICS_CSV) if FROG_METRICS_CSV.exists() else pd.DataFrame()
-    write_biology_figures(area_df=area_df, frog_df=frog_df)
-    print_biology_summary(area_df, frog_df)
-
-    print("\nAll figures written to", FIGURES_DIR.relative_to(REPO_ROOT))
+    generate_all_report_figures()
 
 
 if __name__ == "__main__":
