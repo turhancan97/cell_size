@@ -66,6 +66,49 @@ pip install -e cellpose/
 > **GPU**: Make sure PyTorch with CUDA is installed for GPU acceleration.
 > See <https://pytorch.org/get-started/locally/>.
 
+## Annotation Platform (Private Submodule)
+
+This repository includes a private submodule at `apps/annotation-platform`
+for Good/Bad cell annotation.
+
+### Access requirements
+
+- You must have read access to the private GitHub repository.
+- Your local Git must be able to authenticate over SSH (`git@github.com:...`).
+
+If submodule checkout fails, verify SSH access:
+
+```bash
+ssh -T git@github.com
+```
+
+### Clone/update with submodules
+
+Fresh clone:
+
+```bash
+git clone --recurse-submodules <repo-url>
+cd cell_size
+```
+
+Existing clone:
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+### Annotation export contract
+
+The classifier training pipeline expects feedback CSVs with at least:
+
+```csv
+dataset,image_path,mask_index,verdict
+datasetA,img001,25,good
+```
+
+This schema is consumed by `cell-size-train` (`src/cell_size/classifier/consensus.py`).
+
 ## Quick Start
 
 Segment all `.tif` images in a directory (membrane mode, default):
