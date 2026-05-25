@@ -1,3 +1,6 @@
 [submodule "cellpose"]
 	path = cellpose
 	url = https://github.com/MouseLand/cellpose.git
+[submodule "apps/annotation-platform"]
+	path = apps/annotation-platform
+	url = git@github.com:turhancan97/cell-quality-annotation.git
