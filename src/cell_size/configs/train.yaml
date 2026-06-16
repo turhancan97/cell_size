@@ -3,5 +3,5 @@ defaults:
   - _self_
 
 feedback_csvs: ['/home/kargin/Projects/repositories/cell_size/latest.csv']            # list of feedback CSV paths
-data_dir: '/shared/sets/datasets/vision/cellpose/adults_first_trial'               # root of segmented dataset (cell-size output)
+data_dir: '/shared/sets/datasets/vision/cellpose/Adults_training'               # root of segmented dataset (cell-size output)
 output_dir: "./classifier_output"

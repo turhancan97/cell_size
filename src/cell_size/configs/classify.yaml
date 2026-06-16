@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 checkpoint: null              # path to best model checkpoint
-data_dir: '/shared/sets/datasets/vision/cellpose/example'                # root of segmented dataset to classify
+data_dir: '/shared/sets/datasets/vision/cellpose/Adults_training'                # root of segmented dataset to classify
 output_dir: "./classify_output"
 compute_filtered_areas: true
 compute_diameters: true       # measure major/minor axis (long/short diameter) per cell
