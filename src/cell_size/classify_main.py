@@ -8,15 +8,11 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig
 
-from cell_size.classifier.crop_extractor import _read_image_rgb
 from cell_size.classifier.inference import (
-    _find_processed_images,
-    _load_mask,
-    _load_nucleus_mask,
     compute_filtered_areas,
+    generate_filtered_overlays_from_predictions,
     run_inference,
 )
-from cell_size.classifier.visualization import generate_filtered_overlay
 
 logger = logging.getLogger(__name__)
 
@@ -71,26 +67,7 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.generate_filtered_overlays:
         logger.info("Step 3/3: Generating filtered overlays")
-        overlays_dir = output_dir / "overlays"
-        overlays_dir.mkdir(parents=True, exist_ok=True)
-
-        all_images = _find_processed_images(data_dir)
-        for img_path in all_images:
-            image_stem = img_path.stem
-            img_preds = predictions_df[predictions_df["image_path"] == image_stem]
-            if img_preds.empty:
-                continue
-
-            mask = _load_mask(img_path.parent, image_stem)
-            if mask is None:
-                continue
-
-            nuc_mask = _load_nucleus_mask(img_path.parent, image_stem)
-            img_rgb = _read_image_rgb(img_path)
-            overlay_path = overlays_dir / f"{image_stem}_filtered_overlay.jpg"
-            generate_filtered_overlay(
-                img_rgb, mask, img_preds, overlay_path, nuc_masks=nuc_mask,
-            )
+        generate_filtered_overlays_from_predictions(data_dir, predictions_df, output_dir)
     else:
         logger.info("Step 3/3: Skipping filtered overlays (disabled)")
 

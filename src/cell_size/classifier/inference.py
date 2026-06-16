@@ -19,6 +19,7 @@ from cell_size.classifier.crop_extractor import (
 )
 from cell_size.classifier.dataset import IMAGENET_MEAN, IMAGENET_STD
 from cell_size.classifier.models import build_model
+from cell_size.classifier.visualization import generate_filtered_overlay
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,49 @@ def _load_nucleus_mask(image_folder: Path, image_stem: str) -> np.ndarray | None
                 import tifffile
                 return tifffile.imread(str(mp))
     return None
+
+
+def generate_filtered_overlays_from_predictions(
+    data_dir: Path,
+    predictions_df: pd.DataFrame,
+    output_dir: Path,
+) -> Path:
+    """Generate filtered overlay images from an existing predictions table."""
+    data_dir = Path(data_dir)
+    output_dir = Path(output_dir)
+    overlays_dir = output_dir / "overlays"
+    overlays_dir.mkdir(parents=True, exist_ok=True)
+
+    if predictions_df.empty:
+        logger.warning("No predictions available; skipping filtered overlays.")
+        return overlays_dir
+
+    all_images = _find_processed_images(data_dir)
+    logger.info("Found %d processed images for overlay generation", len(all_images))
+
+    for img_path in all_images:
+        image_stem = img_path.stem
+        img_preds = predictions_df[predictions_df["image_path"] == image_stem]
+        if img_preds.empty:
+            continue
+
+        mask = _load_mask(img_path.parent, image_stem)
+        if mask is None:
+            logger.warning("No mask found for %s, skipping overlay", img_path)
+            continue
+
+        nuc_mask = _load_nucleus_mask(img_path.parent, image_stem)
+        img_rgb = _read_image_rgb(img_path)
+        overlay_path = overlays_dir / f"{image_stem}_filtered_overlay.jpg"
+        generate_filtered_overlay(
+            img_rgb,
+            mask,
+            img_preds,
+            overlay_path,
+            nuc_masks=nuc_mask,
+        )
+
+    return overlays_dir
 
 
 def match_nuclei_to_cells(

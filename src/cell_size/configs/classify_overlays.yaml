@@ -1,0 +1,6 @@
+defaults:
+  - _self_
+
+data_dir: null
+output_dir: "./classify_output"
+predictions_csv: null

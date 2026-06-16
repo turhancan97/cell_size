@@ -350,6 +350,15 @@ Pipeline: load model -> classify every cell in the dataset -> write
 predictions CSV (`good`/`bad`/`rejected`) -> compute filtered areas (good cells only) -> generate
 filtered overlay images.
 
+If you already have `classify_output/predictions.csv`, you can regenerate overlays without rerunning inference:
+
+```bash
+cell-size-classify-overlays \
+    data_dir=/path/to/new/segmented/data \
+    output_dir=./classify_output/overlays \
+    predictions_csv=./classify_output/predictions.csv
+```
+
 ### Classifier Configuration (`src/cell_size/configs/classifier/default.yaml`)
 
 | Key                          | Default      | Description                                             |
