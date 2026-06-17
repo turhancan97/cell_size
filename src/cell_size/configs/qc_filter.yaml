@@ -1,0 +1,6 @@
+defaults:
+  - morphology_qc: default
+  - _self_
+
+input_csv: "./classify_output/filtered_areas.csv"
+output_dir: null

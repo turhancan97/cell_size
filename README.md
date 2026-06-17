@@ -355,9 +355,20 @@ If you already have `classify_output/predictions.csv`, you can regenerate overla
 ```bash
 cell-size-classify-overlays \
     data_dir=/path/to/new/segmented/data \
-    output_dir=./classify_output/overlays \
+    output_dir=./classify_output \
     predictions_csv=./classify_output/predictions.csv
 ```
+
+If you already have `filtered_areas.csv`, you can apply morphology QC without rerunning inference:
+
+```bash
+cell-size-qc-filter \
+    input_csv=./classify_output/filtered_areas.csv \
+    output_dir=./classify_output
+```
+
+QC keeps raw `filtered_areas.csv` unchanged and writes cleaned/rejected tables using the default rule
+`0.05 <= nc_ratio <= 0.50` with required nucleus measurements.
 
 ### Classifier Configuration (`src/cell_size/configs/classifier/default.yaml`)
 
@@ -413,6 +424,10 @@ cell-size-classify-overlays \
 | `output_dir`                 | `"./classify_output"`  | Output directory for predictions           |
 | `compute_filtered_areas`     | `true`                 | Compute areas for good cells only          |
 | `generate_filtered_overlays` | `true`                 | Generate overlay images with filtering     |
+| `morphology_qc.enabled`      | `true`                 | Write QC-clean morphology outputs          |
+| `morphology_qc.require_nucleus` | `true`              | Exclude cells without nucleus measurements |
+| `morphology_qc.min_nc_ratio` | `0.05`                 | Minimum accepted nucleus/cell area ratio   |
+| `morphology_qc.max_nc_ratio` | `0.50`                 | Maximum accepted nucleus/cell area ratio   |
 | `pixel_to_um`                | `null`                 | Manual pixel-to-um scale for area calc     |
 
 ### Feedback CSV Format
@@ -440,8 +455,15 @@ classifier_output/
 
 classify_output/
   predictions.csv         # per-cell predictions with confidence + accepted + frog_id (verdict: good|bad|rejected)
-  filtered_areas.csv      # good-cell morphology (areas, diameters, ratios, frog_id)
-  frog_aggregated_metrics.csv  # one row per frog: n_images, n_cells, metric means/stds
+  filtered_areas.csv      # raw good-cell morphology (areas, diameters, ratios, frog_id)
+  frog_aggregated_metrics.csv  # raw one-row-per-frog aggregate
+  filtered_areas_qc.csv   # QC-clean morphology used by biology reports when present
+  filtered_areas_qc_rejected.csv  # QC-rejected rows with qc_reason
+  frog_aggregated_metrics_qc.csv  # QC-clean one-row-per-frog aggregate
+  morphology_qc_image_summary.csv
+  morphology_qc_frog_summary.csv
+  morphology_qc_threshold_sensitivity.csv
+  frog_aggregated_metrics_qc_comparison.csv
   overlays/
     img001_filtered_overlay.jpg   # good=green, bad=orange, rejected=magenta + nucleus boundaries (cyan)
     img002_filtered_overlay.jpg

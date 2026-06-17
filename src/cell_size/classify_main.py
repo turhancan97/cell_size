@@ -13,6 +13,7 @@ from cell_size.classifier.inference import (
     generate_filtered_overlays_from_predictions,
     run_inference,
 )
+from cell_size.classifier.morphology_qc import run_morphology_qc_from_csv
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,9 @@ def main(cfg: DictConfig) -> None:
         compute_filtered_areas(
             data_dir, predictions_df, areas_path, config_pixel_to_um, diameters,
         )
+        if "morphology_qc" in cfg and bool(cfg.morphology_qc.enabled):
+            logger.info("Step 2b/3: Applying morphology QC")
+            run_morphology_qc_from_csv(areas_path, output_dir, cfg.morphology_qc)
     else:
         logger.info("Step 2/3: Skipping filtered areas (disabled)")
 

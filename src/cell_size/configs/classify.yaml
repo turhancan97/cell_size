@@ -1,5 +1,6 @@
 defaults:
   - classifier: default
+  - morphology_qc: default
   - _self_
 
 checkpoint: null              # path to best model checkpoint

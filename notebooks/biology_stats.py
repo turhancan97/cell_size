@@ -14,11 +14,23 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PREDICTIONS_CSV = REPO_ROOT / "classify_output" / "predictions.csv"
-FILTERED_AREAS_CSV = REPO_ROOT / "classify_output" / "filtered_areas.csv"
-FROG_METRICS_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics.csv"
+FILTERED_AREAS_RAW_CSV = REPO_ROOT / "classify_output" / "filtered_areas.csv"
+FILTERED_AREAS_QC_CSV = REPO_ROOT / "classify_output" / "filtered_areas_qc.csv"
+FROG_METRICS_RAW_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics.csv"
+FROG_METRICS_QC_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics_qc.csv"
+FILTERED_AREAS_CSV = FILTERED_AREAS_QC_CSV if FILTERED_AREAS_QC_CSV.is_file() else FILTERED_AREAS_RAW_CSV
+FROG_METRICS_CSV = FROG_METRICS_QC_CSV if FROG_METRICS_QC_CSV.is_file() else FROG_METRICS_RAW_CSV
 ANALYSIS_DIR = REPO_ROOT / "classify_output" / "analysis"
 REGRESSION_DIR = REPO_ROOT / "classify_output" / "regression"
 LOW_N_CELLS = 60
+
+
+def _prefer_qc_csv(qc_path: Path, raw_path: Path) -> Path:
+    return qc_path if qc_path.is_file() else raw_path
+
+
+def _is_qc_path(path: Path) -> bool:
+    return path.name.endswith("_qc.csv")
 
 
 def icc_oneway(df: pd.DataFrame, group_col: str, value_col: str) -> dict[str, Any]:
@@ -114,8 +126,9 @@ def load_biology_stats(
 ) -> dict[str, Any]:
     """Return flat string placeholders and nested data for report_biology.md."""
     pred_path = predictions_path or PREDICTIONS_CSV
-    area_path = areas_path or FILTERED_AREAS_CSV
-    frog_metrics_path = frog_path or FROG_METRICS_CSV
+    area_path = areas_path or _prefer_qc_csv(FILTERED_AREAS_QC_CSV, FILTERED_AREAS_RAW_CSV)
+    frog_metrics_path = frog_path or _prefer_qc_csv(FROG_METRICS_QC_CSV, FROG_METRICS_RAW_CSV)
+    using_qc_inputs = _is_qc_path(area_path) or _is_qc_path(frog_metrics_path)
 
     pred_df = pd.read_csv(pred_path)
     area_df = pd.read_csv(area_path)
@@ -217,8 +230,14 @@ def load_biology_stats(
 
     # Reference intervals table
     ref_path = ANALYSIS_DIR / "reference_intervals.csv"
-    if ref_path.is_file():
+    if using_qc_inputs:
+        ref_df = _compute_reference_intervals(area_df)
+    elif ref_path.is_file():
         ref_df = pd.read_csv(ref_path)
+    else:
+        ref_df = _compute_reference_intervals(area_df)
+
+    if not ref_df.empty:
         ref_rows = []
         for _, r in ref_df.iterrows():
             ref_rows.append([
@@ -247,7 +266,7 @@ def load_biology_stats(
         stats["ref_nc_p50"] = _ref_val("nc_ratio", "p50")
         stats["ref_nc_p97_5"] = _ref_val("nc_ratio", "p97.5")
     else:
-        stats["reference_intervals_table"] = "_Reference intervals CSV not found._"
+        stats["reference_intervals_table"] = "_Reference intervals not available._"
         for key in (
             "ref_area_p2_5", "ref_area_p50", "ref_area_p97_5",
             "ref_nucleus_p2_5", "ref_nucleus_p50", "ref_nucleus_p97_5",
@@ -257,7 +276,9 @@ def load_biology_stats(
 
     # Regression summary
     reg_path = REGRESSION_DIR / "regression_summary.csv"
-    if reg_path.is_file():
+    if using_qc_inputs:
+        reg_df = _compute_regression_summary(area_df)
+    elif reg_path.is_file():
         reg_df = pd.read_csv(reg_path)
     else:
         reg_df = _compute_regression_summary(area_df)
@@ -277,12 +298,22 @@ def load_biology_stats(
         reg_rows,
     )
     if not reg_df.empty:
-        slope = float(reg_df.iloc[0].get("ols_slope", np.nan))
+        first_reg = reg_df.iloc[0]
+        slope = float(first_reg.get("ols_slope", np.nan))
+        stats["regression_ols_slope"] = slope
+        stats["regression_mixed_slope"] = float(first_reg.get("mixedlm_slope", np.nan))
+        stats["regression_ols_r2"] = float(first_reg.get("ols_r2", np.nan))
         stats["scaling_interpretation"] = _interpret_slope(slope)
+    else:
+        stats["regression_ols_slope"] = float("nan")
+        stats["regression_mixed_slope"] = float("nan")
+        stats["regression_ols_r2"] = float("nan")
 
     # N/C mixed models
     nc_path = ANALYSIS_DIR / "nc_ratio_mixed_models.csv"
-    if nc_path.is_file():
+    if using_qc_inputs:
+        nc_df = _compute_nc_mixed_models(area_df)
+    elif nc_path.is_file():
         nc_df = pd.read_csv(nc_path)
     else:
         nc_df = _compute_nc_mixed_models(area_df)
@@ -303,7 +334,9 @@ def load_biology_stats(
 
     # Frog snapshot tables
     frog_report_path = ANALYSIS_DIR / "frog_summary_report.csv"
-    if frog_report_path.is_file():
+    if using_qc_inputs and not frog_df.empty:
+        fr = frog_df.copy()
+    elif frog_report_path.is_file():
         fr = pd.read_csv(frog_report_path)
     elif not frog_df.empty:
         fr = frog_df.copy()
@@ -374,6 +407,34 @@ def _interpret_slope(slope: float) -> str:
     if slope < 1.0:
         return "negatively allometric (nucleus grows slower than cell area; larger cells are relatively less nucleus-dense)"
     return "consistent with isometric scaling (slope $\\approx$ 1)"
+
+
+def _compute_reference_intervals(area_df: pd.DataFrame) -> pd.DataFrame:
+    metrics = [
+        ("area_um2", "Cell area (um2)"),
+        ("nucleus_area_um2", "Nucleus area (um2)"),
+        ("nc_ratio", "N/C ratio"),
+        ("major_axis_um", "Cell major axis (um)"),
+        ("minor_axis_um", "Cell minor axis (um)"),
+        ("nucleus_major_axis_um", "Nucleus major axis (um)"),
+        ("nucleus_minor_axis_um", "Nucleus minor axis (um)"),
+    ]
+    rows = []
+    for metric, label in metrics:
+        if metric not in area_df.columns:
+            continue
+        s = pd.to_numeric(area_df[metric], errors="coerce").dropna()
+        s = s[s > 0]
+        if s.empty:
+            continue
+        rows.append({
+            "metric": metric,
+            "label": label,
+            "p2.5": float(s.quantile(0.025)),
+            "p50": float(s.quantile(0.5)),
+            "p97.5": float(s.quantile(0.975)),
+        })
+    return pd.DataFrame(rows)
 
 
 def _compute_regression_summary(area_df: pd.DataFrame) -> pd.DataFrame:

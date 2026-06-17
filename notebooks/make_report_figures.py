@@ -56,14 +56,22 @@ CROPS_ROOT = REPO_ROOT / "classifier_output" / "crops" / "mask_bg_false"
 BASELINE_THRESHOLD = 0.5
 
 # Biology inputs.
-FILTERED_AREAS_CSV = REPO_ROOT / "classify_output" / "filtered_areas.csv"
-FROG_METRICS_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics.csv"
+FILTERED_AREAS_RAW_CSV = REPO_ROOT / "classify_output" / "filtered_areas.csv"
+FILTERED_AREAS_QC_CSV = REPO_ROOT / "classify_output" / "filtered_areas_qc.csv"
+FROG_METRICS_RAW_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics.csv"
+FROG_METRICS_QC_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics_qc.csv"
+FILTERED_AREAS_CSV = FILTERED_AREAS_QC_CSV if FILTERED_AREAS_QC_CSV.is_file() else FILTERED_AREAS_RAW_CSV
+FROG_METRICS_CSV = FROG_METRICS_QC_CSV if FROG_METRICS_QC_CSV.is_file() else FROG_METRICS_RAW_CSV
 
 # Misc.
 RANDOM_SEED = 42
 BATCH_SIZE = 128
 NUM_WORKERS = 4
 N_EXAMPLES_PER_GROUP = 20
+
+
+def _prefer_qc_csv(qc_path: Path, raw_path: Path) -> Path:
+    return qc_path if qc_path.is_file() else raw_path
 
 
 def set_seed(seed: int) -> None:
@@ -147,12 +155,14 @@ def generate_all_report_figures() -> None:
     else:
         print(f"[warn] checkpoint not found at {CHECKPOINT_PATH} — skipping classifier figures")
 
-    if not FILTERED_AREAS_CSV.exists():
-        print(f"[warn] biology CSV missing — looked for\n  {FILTERED_AREAS_CSV}")
+    area_path = _prefer_qc_csv(FILTERED_AREAS_QC_CSV, FILTERED_AREAS_RAW_CSV)
+    frog_path = _prefer_qc_csv(FROG_METRICS_QC_CSV, FROG_METRICS_RAW_CSV)
+    if not area_path.exists():
+        print(f"[warn] biology CSV missing -- looked for\n  {area_path}")
         return
 
-    area_df = pd.read_csv(FILTERED_AREAS_CSV)
-    frog_df = pd.read_csv(FROG_METRICS_CSV) if FROG_METRICS_CSV.exists() else pd.DataFrame()
+    area_df = pd.read_csv(area_path)
+    frog_df = pd.read_csv(frog_path) if frog_path.exists() else pd.DataFrame()
     print("\n" + "=" * 70)
     print("Part C biology figures")
     print("=" * 70)
@@ -348,8 +358,9 @@ def main() -> None:
         print("=" * 70)
         print("Biology figures only")
         print("=" * 70)
-        if not FILTERED_AREAS_CSV.exists():
-            print(f"[warn] biology CSV missing: {FILTERED_AREAS_CSV}")
+        area_path = _prefer_qc_csv(FILTERED_AREAS_QC_CSV, FILTERED_AREAS_RAW_CSV)
+        if not area_path.exists():
+            print(f"[warn] biology CSV missing: {area_path}")
             return
         write_biology_figures()
         return

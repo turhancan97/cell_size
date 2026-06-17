@@ -12,8 +12,12 @@ from matplotlib.lines import Line2D
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIGURES_DIR = REPO_ROOT / "notebooks" / "figures"
-FILTERED_AREAS_CSV = REPO_ROOT / "classify_output" / "filtered_areas.csv"
-FROG_METRICS_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics.csv"
+FILTERED_AREAS_RAW_CSV = REPO_ROOT / "classify_output" / "filtered_areas.csv"
+FILTERED_AREAS_QC_CSV = REPO_ROOT / "classify_output" / "filtered_areas_qc.csv"
+FROG_METRICS_RAW_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics.csv"
+FROG_METRICS_QC_CSV = REPO_ROOT / "classify_output" / "frog_aggregated_metrics_qc.csv"
+FILTERED_AREAS_CSV = FILTERED_AREAS_QC_CSV if FILTERED_AREAS_QC_CSV.is_file() else FILTERED_AREAS_RAW_CSV
+FROG_METRICS_CSV = FROG_METRICS_QC_CSV if FROG_METRICS_QC_CSV.is_file() else FROG_METRICS_RAW_CSV
 PREDICTIONS_CSV = REPO_ROOT / "classify_output" / "predictions.csv"
 
 BIO_COLOR_CELL = "#2a9d8f"
@@ -24,6 +28,10 @@ BIO_COLOR_HIGHLIGHT_LARGE = "#1d4ed8"
 RANDOM_SEED = 42
 TOP_N_FROGS_FOR_COLOR = 40
 FIG_DPI = 140
+
+
+def _prefer_qc_csv(qc_path: Path, raw_path: Path) -> Path:
+    return qc_path if qc_path.is_file() else raw_path
 
 
 def hist_with_summary(
@@ -474,9 +482,10 @@ def write_report_c_figures(
     out_dir = figures_dir or FIGURES_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     if area_df is None:
-        area_df = pd.read_csv(FILTERED_AREAS_CSV)
+        area_df = pd.read_csv(_prefer_qc_csv(FILTERED_AREAS_QC_CSV, FILTERED_AREAS_RAW_CSV))
     if frog_df is None:
-        frog_df = pd.read_csv(FROG_METRICS_CSV) if FROG_METRICS_CSV.is_file() else pd.DataFrame()
+        frog_path = _prefer_qc_csv(FROG_METRICS_QC_CSV, FROG_METRICS_RAW_CSV)
+        frog_df = pd.read_csv(frog_path) if frog_path.is_file() else pd.DataFrame()
 
     save_area_distribution(area_df, out_dir)
     save_diameter_distribution(area_df, out_dir)
@@ -505,9 +514,10 @@ def write_all(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if area_df is None:
-        area_df = pd.read_csv(FILTERED_AREAS_CSV)
+        area_df = pd.read_csv(_prefer_qc_csv(FILTERED_AREAS_QC_CSV, FILTERED_AREAS_RAW_CSV))
     if frog_df is None:
-        frog_df = pd.read_csv(FROG_METRICS_CSV) if FROG_METRICS_CSV.is_file() else pd.DataFrame()
+        frog_path = _prefer_qc_csv(FROG_METRICS_QC_CSV, FROG_METRICS_RAW_CSV)
+        frog_df = pd.read_csv(frog_path) if frog_path.is_file() else pd.DataFrame()
     if pred_df is None and PREDICTIONS_CSV.is_file():
         pred_df = pd.read_csv(PREDICTIONS_CSV)
 

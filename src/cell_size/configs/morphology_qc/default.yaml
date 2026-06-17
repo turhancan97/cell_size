@@ -1,0 +1,5 @@
+enabled: true
+require_nucleus: true
+min_nc_ratio: 0.05
+max_nc_ratio: 0.50
+sensitivity_max_nc_ratios: [0.30, 0.40, 0.50, 0.80]

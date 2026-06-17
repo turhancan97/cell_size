@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
-from biology_stats import _fmt, fill_template, load_biology_stats
+from biology_stats import _fmt, load_biology_stats
 from classifier_stats import ANALYSIS_DIR, load_classifier_stats
 
 
 def load_report_stats(*, run_classifier_inference: bool = True) -> dict[str, Any]:
     """Load classifier (test split) + biology (full cohort) placeholders."""
     cache = ANALYSIS_DIR / "classifier_stats.json"
+    run_clf = run_classifier_inference
     if not run_classifier_inference:
         if cache.is_file():
             run_clf = False
@@ -40,23 +38,10 @@ def load_report_stats(*, run_classifier_inference: bool = True) -> dict[str, Any
     placeholders["summary_selective_accuracy"] = clf["placeholders"]["selective_accuracy_pct"]
     placeholders["summary_coverage_pct"] = clf["placeholders"]["coverage_pct"]
 
-    # C6 regression (nucleus area vs cell area — first row)
-    reg_path = bio.get("regression_table")
-    regression_ols_slope = ""
-    regression_mixed_slope = ""
-    regression_ols_r2 = ""
-    reg_df_path = Path(__file__).resolve().parents[1] / "classify_output" / "regression" / "regression_summary.csv"
-    if reg_df_path.is_file():
-        reg_df = pd.read_csv(reg_df_path)
-        if not reg_df.empty:
-            row = reg_df.iloc[0]
-            regression_ols_slope = _fmt(row.get("ols_slope"), 3)
-            regression_mixed_slope = _fmt(row.get("mixedlm_slope"), 3)
-            regression_ols_r2 = _fmt(row.get("ols_r2"), 3)
-
-    placeholders["regression_ols_slope"] = regression_ols_slope
-    placeholders["regression_mixed_slope"] = regression_mixed_slope
-    placeholders["regression_ols_r2"] = regression_ols_r2
+    # C6 regression (nucleus area vs cell area, first row)
+    placeholders["regression_ols_slope"] = _fmt(bio.get("regression_ols_slope"), 3)
+    placeholders["regression_mixed_slope"] = _fmt(bio.get("regression_mixed_slope"), 3)
+    placeholders["regression_ols_r2"] = _fmt(bio.get("regression_ols_r2"), 3)
     placeholders["scaling_interpretation"] = bio_ph.get("scaling_interpretation", "")
     placeholders["report_date"] = date.today().strftime("%d %B %Y")
 
