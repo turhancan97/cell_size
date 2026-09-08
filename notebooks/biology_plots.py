@@ -306,7 +306,7 @@ def _annotate_outlier_frog_ids(
     for i, (_, row) in enumerate(rows.iterrows()):
         ox, oy = offsets[i % len(offsets)]
         ax.annotate(
-            str(int(row["frog_id"])),
+            str(row["frog_id"]),
             (row["rank"], row["area_um2_mean"]),
             textcoords="offset points",
             xytext=(ox, oy),

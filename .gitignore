@@ -223,10 +223,13 @@ outputs/
 wandb/
 
 # classifier output
-classifier_output/
+classifier_output
 
 # classify output
-classify_output/
+classify_output
 
 # notebooks files
 notebooks/figures/
+
+latest_adults.csv
+latest_tadpoles.csv

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -20,24 +19,14 @@ from cell_size.classifier.crop_extractor import (
 from cell_size.classifier.dataset import IMAGENET_MEAN, IMAGENET_STD
 from cell_size.classifier.models import build_model
 from cell_size.classifier.visualization import generate_filtered_overlay
+from cell_size.sample_ids import extract_frog_id as _extract_frog_id
+from cell_size.sample_ids import with_frog_id
 
 logger = logging.getLogger(__name__)
 
 MASK_SUFFIXES = ("_mask.tif", "_mask.tiff", "_mask.npy")
 NUCLEUS_MASK_SUFFIXES = ("_nucleus_mask.tif", "_nucleus_mask.tiff", "_nucleus_mask.npy")
 IMAGE_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
-FROG_ID_RE = re.compile(r"^TIFF_AH_(\d+)_\d+$")
-
-
-def _extract_frog_id(image_name: str) -> int | None:
-    """Extract frog id from image name, e.g. TIFF_AH_001_04 -> 1."""
-    m = FROG_ID_RE.match(str(image_name))
-    if m is None:
-        return None
-    try:
-        return int(m.group(1))
-    except ValueError:
-        return None
 
 
 def _safe_ratio(numerator: float | int | None, denominator: float | int | None, ndigits: int = 4) -> float:
@@ -87,9 +76,7 @@ def _build_frog_aggregated_metrics(filtered_df: pd.DataFrame) -> tuple[pd.DataFr
     if filtered_df.empty:
         return pd.DataFrame(columns=out_cols), []
 
-    work = filtered_df.copy()
-    if "frog_id" not in work.columns:
-        work["frog_id"] = work["image_path"].map(_extract_frog_id)
+    work = with_frog_id(filtered_df, overwrite=True)
 
     unparsed_images = sorted(
         work.loc[work["frog_id"].isna(), "image_path"].dropna().astype(str).unique().tolist()
@@ -98,7 +85,7 @@ def _build_frog_aggregated_metrics(filtered_df: pd.DataFrame) -> tuple[pd.DataFr
     if work.empty:
         return pd.DataFrame(columns=out_cols), unparsed_images
 
-    work["frog_id"] = work["frog_id"].astype(int)
+    work["frog_id"] = work["frog_id"].astype("string")
     grouped = work.groupby("frog_id", sort=True)
 
     if "mask_index" in work.columns:

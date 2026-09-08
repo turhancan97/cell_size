@@ -20,7 +20,6 @@ def _qc_input_df() -> pd.DataFrame:
         [
             {
                 "image_path": "TIFF_AH_001_01",
-                "frog_id": 1,
                 "mask_index": 1,
                 "area_px": 100.0,
                 "area_um2": 10.0,
@@ -30,7 +29,6 @@ def _qc_input_df() -> pd.DataFrame:
             },
             {
                 "image_path": "TIFF_AH_001_01",
-                "frog_id": 1,
                 "mask_index": 2,
                 "area_px": 100.0,
                 "area_um2": 10.0,
@@ -40,7 +38,6 @@ def _qc_input_df() -> pd.DataFrame:
             },
             {
                 "image_path": "TIFF_AH_002_01",
-                "frog_id": 2,
                 "mask_index": 1,
                 "area_px": 100.0,
                 "area_um2": 10.0,
@@ -50,7 +47,6 @@ def _qc_input_df() -> pd.DataFrame:
             },
             {
                 "image_path": "TIFF_AH_002_01",
-                "frog_id": 2,
                 "mask_index": 2,
                 "area_px": 100.0,
                 "area_um2": 10.0,
@@ -60,7 +56,6 @@ def _qc_input_df() -> pd.DataFrame:
             },
             {
                 "image_path": "TIFF_AH_003_01",
-                "frog_id": 3,
                 "mask_index": 1,
                 "area_px": 0.0,
                 "area_um2": 0.0,
@@ -75,6 +70,7 @@ def _qc_input_df() -> pd.DataFrame:
 def test_apply_morphology_qc_reasons() -> None:
     annotated = apply_morphology_qc(_qc_input_df(), MorphologyQCConfig())
 
+    assert annotated["frog_id"].tolist() == ["001", "001", "002", "002", "003"]
     assert annotated["qc_pass"].tolist() == [True, False, False, False, False]
     assert annotated.loc[0, "qc_reason"] == "pass"
     assert "missing_or_invalid_nucleus_area_px" in annotated.loc[1, "qc_reason"]
@@ -116,16 +112,32 @@ def test_run_morphology_qc_writes_expected_outputs_and_preserves_raw(tmp_path: P
     assert int(row["n_qc_pass"]) == 1
     assert int(row["n_qc_rejected"]) == 1
 
-    comparison = pd.read_csv(result.paths["frog_aggregated_metrics_qc_comparison"])
-    frog_1 = comparison.loc[comparison["frog_id"] == 1].iloc[0]
+    comparison = result.comparison_df
+    frog_1 = comparison.loc[comparison["frog_id"] == "001"].iloc[0]
     assert int(frog_1["n_cells_raw"]) == 2
     assert int(frog_1["n_cells_qc"]) == 1
     assert float(frog_1["n_cells_delta"]) == pytest.approx(-1)
 
-    frog_2 = comparison.loc[comparison["frog_id"] == 2].iloc[0]
+    frog_2 = comparison.loc[comparison["frog_id"] == "002"].iloc[0]
     assert int(frog_2["n_cells_raw"]) == 2
     assert int(frog_2["n_cells_qc"]) == 0
     assert float(frog_2["n_cells_delta"]) == pytest.approx(-2)
+
+
+def test_build_frog_aggregated_metrics_supports_alphanumeric_frog_ids() -> None:
+    df = pd.DataFrame(
+        [
+            {"image_path": "TIFF_AH_030K_12", "mask_index": 1, "area_px": 100.0},
+            {"image_path": "TIFF_AH_030K_13", "mask_index": 2, "area_px": 120.0},
+        ]
+    )
+
+    aggregate = build_frog_aggregated_metrics(df)
+
+    assert list(aggregate["frog_id"]) == ["030K"]
+    assert int(aggregate.loc[0, "n_images"]) == 2
+    assert int(aggregate.loc[0, "n_cells"]) == 2
+    assert float(aggregate.loc[0, "area_px_mean"]) == pytest.approx(110.0)
 
 
 def test_run_morphology_qc_from_csv(tmp_path: Path) -> None:

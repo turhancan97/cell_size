@@ -11,9 +11,10 @@ import cell_size.classifier.inference as inference
 
 
 def test_extract_frog_id_examples_and_invalid() -> None:
-    assert inference._extract_frog_id("TIFF_AH_001_04") == 1
-    assert inference._extract_frog_id("TIFF_AH_476_10") == 476
-    assert inference._extract_frog_id("TIFF_AH_ABC_10") is None
+    assert inference._extract_frog_id("TIFF_AH_001_04") == "001"
+    assert inference._extract_frog_id("TIFF_AH_476_10") == "476"
+    assert inference._extract_frog_id("TIFF_AH_030K_12") == "030K"
+    assert inference._extract_frog_id("TIFF_AH__10") is None
     assert inference._extract_frog_id("imgA") is None
 
 
@@ -59,9 +60,9 @@ def test_build_frog_aggregated_metrics_mean_std_counts() -> None:
 
     frog_df, unparsed = inference._build_frog_aggregated_metrics(df)
     assert unparsed == []
-    assert list(frog_df["frog_id"]) == [1, 476]
+    assert list(frog_df["frog_id"]) == ["001", "476"]
 
-    frog_1 = frog_df.loc[frog_df["frog_id"] == 1].iloc[0]
+    frog_1 = frog_df.loc[frog_df["frog_id"] == "001"].iloc[0]
     assert int(frog_1["n_images"]) == 2
     assert int(frog_1["n_cells"]) == 2
     assert float(frog_1["area_px_mean"]) == pytest.approx(12.0)
@@ -69,10 +70,29 @@ def test_build_frog_aggregated_metrics_mean_std_counts() -> None:
     assert float(frog_1["nc_ratio_mean"]) == pytest.approx(0.30)
     assert float(frog_1["nc_ratio_std"]) == pytest.approx(0.14142135)
 
-    frog_476 = frog_df.loc[frog_df["frog_id"] == 476].iloc[0]
+    frog_476 = frog_df.loc[frog_df["frog_id"] == "476"].iloc[0]
     assert int(frog_476["n_images"]) == 1
     assert int(frog_476["n_cells"]) == 1
     assert pd.isna(frog_476["area_px_std"])
+
+
+def test_build_frog_aggregated_metrics_supports_alphanumeric_ids() -> None:
+    df = pd.DataFrame(
+        [
+            {"image_path": "TIFF_AH_030K_12", "mask_index": 1, "area_px": 10.0},
+            {"image_path": "TIFF_AH_030K_13", "mask_index": 2, "area_px": 14.0},
+            {"image_path": "TIFF_AH_031K_01", "mask_index": 1, "area_px": 20.0},
+        ]
+    )
+
+    frog_df, unparsed = inference._build_frog_aggregated_metrics(df)
+
+    assert unparsed == []
+    assert list(frog_df["frog_id"]) == ["030K", "031K"]
+    frog_030k = frog_df.loc[frog_df["frog_id"] == "030K"].iloc[0]
+    assert int(frog_030k["n_images"]) == 2
+    assert int(frog_030k["n_cells"]) == 2
+    assert float(frog_030k["area_px_mean"]) == pytest.approx(12.0)
 
 
 def test_build_frog_aggregated_metrics_excludes_unparseable_names() -> None:
@@ -86,7 +106,7 @@ def test_build_frog_aggregated_metrics_excludes_unparseable_names() -> None:
 
     assert unparsed == ["unparseable_image"]
     assert len(frog_df) == 1
-    assert int(frog_df.loc[0, "frog_id"]) == 1
+    assert frog_df.loc[0, "frog_id"] == "001"
     assert int(frog_df.loc[0, "n_cells"]) == 1
 
 

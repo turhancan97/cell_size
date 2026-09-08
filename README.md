@@ -370,6 +370,7 @@ cell-size-qc-filter \
 QC keeps raw `filtered_areas.csv` unchanged and writes cleaned/rejected tables using the default rule
 `0.05 <= nc_ratio <= 0.50` with required nucleus measurements.
 
+
 ### Classifier Configuration (`src/cell_size/configs/classifier/default.yaml`)
 
 | Key                          | Default      | Description                                             |
@@ -469,8 +470,10 @@ classify_output/
     img002_filtered_overlay.jpg
 ```
 
-Frog IDs are parsed from image names using `TIFF_AH_<frog_id>_<image_idx>`
-(for example: `TIFF_AH_001_04 -> 1`, `TIFF_AH_476_10 -> 476`).
+Frog IDs are parsed as string sample tokens from image names using
+`TIFF_AH_<frog_id>_<image_idx>`. Leading zeros and letters are preserved, for
+example `TIFF_AH_001_04 -> "001"`, `TIFF_AH_160_05 -> "160"`, and
+`TIFF_AH_030K_12 -> "030K"`.
 
 ### Combined report (classifier + biology, LaTeX/PDF)
 

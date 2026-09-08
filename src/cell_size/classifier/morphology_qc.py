@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,9 +10,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cell_size.sample_ids import with_frog_id
+
 logger = logging.getLogger(__name__)
 
-FROG_ID_RE = re.compile(r"^TIFF_AH_(\d+)_\d+$")
 DEFAULT_SENSITIVITY_MAX_NC_RATIOS = (0.30, 0.40, 0.50, 0.80)
 QC_PASS_REASON = "pass"
 
@@ -62,22 +62,8 @@ def resolve_morphology_qc_config(cfg: Any | None = None) -> MorphologyQCConfig:
     )
 
 
-def _extract_frog_id(image_name: str) -> int | None:
-    m = FROG_ID_RE.match(str(image_name))
-    if m is None:
-        return None
-    try:
-        return int(m.group(1))
-    except ValueError:
-        return None
-
-
 def _ensure_frog_id(df: pd.DataFrame) -> pd.DataFrame:
-    if "frog_id" in df.columns:
-        return df
-    out = df.copy()
-    out["frog_id"] = out["image_path"].map(_extract_frog_id) if "image_path" in out.columns else np.nan
-    return out
+    return with_frog_id(df, overwrite=True)
 
 
 def _numeric(df: pd.DataFrame, col: str) -> pd.Series:
@@ -187,7 +173,7 @@ def build_frog_aggregated_metrics(filtered_df: pd.DataFrame) -> pd.DataFrame:
     if work.empty:
         return pd.DataFrame(columns=out_cols)
 
-    work["frog_id"] = work["frog_id"].astype(int)
+    work["frog_id"] = work["frog_id"].astype("string")
     grouped = work.groupby("frog_id", sort=True)
     if "mask_index" in work.columns:
         agg_df = grouped.agg(n_images=("image_path", "nunique"), n_cells=("mask_index", "count"))
