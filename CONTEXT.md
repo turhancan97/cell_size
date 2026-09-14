@@ -172,7 +172,9 @@ frog-level aggregation with a warning.
 
 These are examples from the current workflow; verify paths on the active machine:
 
-- Adult segmented data: `/shared/sets/datasets/vision/cellpose/Adults_training`
+- Adult segmented data: `/shared/sets/datasets/vision/cellpose/Adults/adults_second_trial`
+  (the older `.../cellpose/Adults_training` path in earlier notes does not exist)
+- Adult training labels: `latest_adults.csv` in the repo root (gitignored), 8,663 hand-labelled cells
 - Tadpole segmented data: `/shared/sets/datasets/vision/cellpose/Tadpoles/Tadpoles_training`
 - Classifier checkpoint: `./classifier_output/run_2/best_model.pt`
 - General classification output root: `./classify_output`
@@ -285,6 +287,466 @@ list and preserving the known working combination.
 
 Record new entries at the top in reverse chronological order. Include the date, what
 changed, relevant paths/thresholds, verification performed, and unresolved questions.
+
+### 2026-09-09 (later 9) — Adult training cells added as the reference distribution; conclusion sharpened
+
+- Change: Added the actual classifier training data to the report's appearance analysis, so the
+  scatter shows where the model's expectation sits rather than only comparing tadpole groups.
+  Both artifacts republished at their existing URLs. Report now 5.77 MB.
+- DATA LOCATION CORRECTION: the adult root documented in this file as
+  `/shared/sets/datasets/vision/cellpose/Adults_training` does NOT exist. The real path is
+  `/shared/sets/datasets/vision/cellpose/Adults/adults_second_trial/` (sibling dirs
+  `adults_first_trial`, `Adults_training_subset`). The `dataset` column in the label CSV names
+  the subdirectory.
+- TRAINING LABELS: `latest_adults.csv` in the repo root (gitignored) is the hand-labelled
+  training set — 8,663 labelled adult cells, 1,258 good / 7,405 bad, 163 images, 157 frogs,
+  dataset `adults_second_trial`, reviewer marcin.czarnoleski@uj.edu.pl, dated 2026-04-28.
+  Schema: dataset, image_path, mask_index, verdict, reviewer_email, comment, reviewed_at.
+  File mtime 3 May, checkpoint `run_2/best_model.pt` 4 May — consistent. 162 of 163 labelled
+  images have image + mask + nucleus_mask on disk.
+- Sampled 98 good + 70 bad adult cells from 14 images and measured the same six features
+  (`sample_adult.py`, `features_adult.csv`, `features_all2.csv`, `groups_adult.json`).
+- KEY RESULT — the control is now inside the training data itself, which is far stronger than
+  the previous tadpole-only control. Separation (ROC AUC):
+  - adult good vs adult bad: 0.504-0.575 on EVERY feature, i.e. chance. The human labels were
+    about broken/overlapping cells, not staining, so these features provably do not measure
+    cell quality.
+  - adult good vs ext_bad (worst tadpole slides): nucleus darkness 0.979, nucleus contrast
+    0.913, cytoplasm saturation 0.820, granularity 0.706, cytoplasm brightness 0.637.
+  - adult good vs ok_good (tadpoles above target): nucleus darkness 0.522, contrast 0.608 —
+    i.e. the tadpoles that WORK sit on top of the training distribution.
+- Nucleus darkness is the cleanest single axis, monotonic away from the training value:
+  adult_good 0.357, ok_good 0.357 (identical), aff_bad 0.408, ext_bad 0.533.
+- IMPORTANT NUANCE that corrects earlier wording: hue is NOT the discriminator against the
+  training set (AUC 0.611). Adult nuclei sit at hue 294, failing tadpoles 288, working tadpoles
+  314 — so the adults are closer to the FAILING slides on colour. Earlier drafts said the
+  rejected cells are "paler, bluer and more granular than the training material"; the "bluer"
+  half is wrong against the training set, though still true against working tadpole slides
+  (AUC 0.893). The report now leads with paleness and loss of nucleus/cytoplasm contrast, and
+  states explicitly that colour is not the explanation. Findings card 3 reworded accordingly.
+- So the defensible claim is narrower and better: the model tolerates real shift (working
+  tadpoles differ from adults in hue and cytoplasm saturation and still classify fine); what it
+  does not tolerate is the nucleus being pale and poorly separated from its own cytoplasm.
+- Page changes: new `--ref`/`--ref-2` green tokens (theme-aware) for the training groups; the
+  two adult groups added to the section 03 gallery selector with the left side now defaulting to
+  "Adult training · marked GOOD"; scatter defaults to adult_good + ok_good + ext_bad; feature
+  table restructured to five median columns (adult good, adult bad, tadpole above, below, far
+  below) with the control column now "within training".
+- Speech script section 04 rewritten around the training anchor; script is now ~2,057 spoken
+  words, about 16 minutes, and the stated timings in the header and opening were updated to match.
+- Verification: HTML tag balance checked with a parser over the body (no mismatches, nothing
+  unclosed) after an earlier draft of the patch introduced a stray `</p>` inside a note div,
+  which was caught and fixed before writing; `node --check` on both pages' JS; every
+  substitution asserted on an exact match count (20 in the report patch). Layout not visually
+  verified — no headless browser here.
+
+### 2026-09-09 (later 8) — max_nc_ratio sensitivity measured at production settings; report figure corrected
+
+- Question answered: does raising `morphology_qc.max_nc_ratio` above 0.30 recover meaningful
+  numbers of cells? Measured across all 807 individuals with the classifier UNCHANGED at
+  `t_good=0.76`, by recomputing the row-level QC predicate from
+  `filtered_areas_qc.csv` + `filtered_areas_qc_rejected.csv` (mirrors `apply_morphology_qc`:
+  valid area_px, valid nucleus_area_px, valid nc_ratio, nc_ratio >= 0.05).
+- Answer: a real but small and highly concentrated effect that SATURATES by 0.35-0.40.
+  QC-pass cells / individuals below 40:
+    0.30 (current) 72,175 / 92     0.35 73,102 (+927) / 85
+    0.40 73,273 (+1,098) / 85      0.50 73,333 (+1,158) / 84
+    0.80 73,372 (+1,197) / 84      1.00 73,461 (+1,286) / 83
+  Removing the limit entirely only ever rescues 9 of the 92, so nothing useful lies above 0.40.
+- Seven individuals cross 40 at max_nc_ratio=0.40: 049K 32->43, 073K 39->40, 097K 39->44,
+  192K 35->53, 418K 30->45, 426K 38->44, 465K 39->51.
+- Where the +1,098 recovered cells land: 72.6% go to individuals ALREADY above 40, 15.8% to
+  the below-target band, 0.5% to far below. Median gain per individual is 0. The 12 extreme
+  individuals gain 4 cells between them, all of it in 104K (5->9); 900K, 854K, 883K, 859K,
+  870K, 856K, 865K, 855K, 877K, 860K, 852K all gain zero. Reason: `max_nc_ratio` filters
+  cells the classifier already accepted, and 900K has only 4 accepted cells in total — no QC
+  setting can create cells that never passed the classifier.
+- ERROR CORRECTED in both deliverables: the report's section 08 decision card claimed "367K
+  would go from 23 to 55 cells at 40%". That conflated two changes — 55 required `t_good`
+  lowered to 0.50 AS WELL. At production `t_good=0.76`, relaxing the nucleus limit alone takes
+  367K from 23 to 39, still short of 40. Both the report card and the speech script now quote
+  the correct production-setting figures (7 of 92 cross, 192K 35->53, extreme cases gain 4
+  cells between them). LESSON: never quote a number from the diagnostic run as if it came from
+  a single-parameter change; `diagnostic_tgood_0.50` differs from `final_tadpole_results` in
+  BOTH t_good and, in the recomputes, max_nc_ratio.
+- Standing conclusion for the meeting: relaxing max_nc_ratio to 0.40 is worth doing ONLY if a
+  nucleus above 30% of cell area is biologically plausible for tadpole RBCs. It is a separate,
+  minor improvement for borderline individuals in the mid-30s — not a fix for the low-count
+  problem, and no help at all for the extreme cases.
+
+### 2026-09-09 (later 7) — Speaking notes prepared as a second artifact
+
+- Change: Wrote a plain-language speaking script for the biology-team meeting, published as a
+  separate companion artifact (the diagnostic report is unchanged).
+  Script: https://claude.ai/code/artifact/0cfc1dfc-5284-426a-83bb-4e7295223f64
+  Report: https://claude.ai/code/artifact/f43894a7-1c14-4a93-815d-4e237e648c6e
+- Structure: 11 blocks — opening, one per report section 01-09, closing summary — plus an
+  "If someone asks" section with six anticipated questions. 1,831 spoken words, about 14
+  minutes at 130 wpm; per-section time estimates shown.
+- Written for a non-native, non-computational audience: short sentences, no jargon (no
+  "domain shift", "distribution", "ROC AUC"), and numbers spoken as ratios — "93 cells out
+  of every 100" rather than "93.06%". Presenter cues are visually distinct (small, uppercase,
+  grey, chevron-marked) so they are not read aloud by mistake.
+- The script keeps the honest caveats deliberately: the two sparse slides (104K img01 has 3
+  detected cells, 367K img14 has 9), that 893K in the 8xxK series worked fine, that
+  retraining means re-running all tadpoles so counts shift slightly everywhere, and that
+  whether the cells are biologically normal is the team's call and not established by us.
+- Source file `speech.html` in the session scratchpad. Uses localStorage only, to dim
+  sections already covered; no capabilities declared.
+- Verification: spoken-word count measured from `<p>` inside `.script` blocks only (cues
+  excluded) and the stated timing corrected from 13 to 14 minutes to match; `node --check`
+  on page JS. Layout not visually verified (no headless browser).
+
+### 2026-09-09 (later 6) — Section 07 rewritten as a plain-language threshold explainer
+
+- Change: Section 07 now explains what `t_bad` and `t_good` actually do, in language for a
+  biologist, and shows why moving them cannot recover the missing cells. Same URL, 5.2 MB.
+  Report prose is now ~1357 words (up from 707 — this section deliberately carries more).
+- New content: three cards defining the settings (t_bad 0.10 discard / 0.10-0.76 not sure /
+  t_good 0.76 measure), then a hand-authored inline-SVG figure, then the existing rerun
+  table unchanged.
+- The figure: the 0-1 cell-score axis cut by the two thresholds into three zones, with the
+  share of all detected cells in each zone, one row for the 92 below target and one for the
+  715 above. Zone widths follow the score axis, so the leftmost zone spans only 0.00-0.10
+  yet holds most cells — that mismatch is the whole point of the picture.
+- MEASURED DISTRIBUTION (new numbers, from `predictions.csv`, confidence = p_good):
+  - Below target (75,996 cells): under 0.10 = 93.06%, 0.10-0.76 = 3.51%, >=0.76 = 3.43%.
+    90.66% of all cells sit in 0.00-0.02 alone.
+  - Above target (689,790 cells): under 0.10 = 86.00%, 0.10-0.76 = 3.33%, >=0.76 = 10.67%.
+    9.54% sit in 0.90-1.00, against 2.59% below target.
+  - So the scores are bimodal, and the two cohorts differ almost entirely at the CONFIDENT
+    ACCEPT end (10.67% vs 3.43%), not in the borderline middle (3.33% vs 3.51%). What went
+    missing is confident acceptances. The middle band is the ceiling on anything `t_good`
+    can recover: 3.5% of cells.
+- Precision point worth keeping: `t_bad` is the weaker lever. Lowering it only moves cells
+  from "discarded" to "not sure" — it does not add measured cells, because `t_good` alone
+  decides what gets measured. The report now says this explicitly, because the user has
+  been running `t_bad=0.05` in `cell-size-classify.sh`. An earlier draft claimed "no setting
+  reaches them", which was wrong, and was corrected before publishing.
+- Note on the working tree: `cell-size-classify.sh` currently holds the DIAGNOSTIC config
+  (`t_bad=0.05`, `t_good=0.50`, `data_dir=.../tadpole_diagnostic_subset`,
+  `output_dir=./classify_output/diagnostic_tgood_0.50_tbad_0.05_`), not the production
+  values. The report's stated values (0.10 / 0.76) are those that produced
+  `final_tadpole_results`. Do not read the script as the production config.
+- Verification: SVG zone boundaries recomputed from the axis mapping and confirmed to match
+  the drawn rect x/width values exactly (112 / 174.4 / 586.2 / 736 for scores 0 / 0.10 /
+  0.76 / 1.00); all text y-coordinates confirmed inside the viewBox; zone percentages sum to
+  100.0 in both rows; `node --check` on page JS. Layout not visually verified.
+
+### 2026-09-09 (later 5) — Report prose trimmed for live presentation
+
+- Change: Cut the report's text roughly in half so it can be talked through in a meeting
+  rather than read. Every table, chart, image, the band key and the decision cards are
+  unchanged — text only. Same URL, 5.19 MB.
+- Prose went from ~2000 to ~707 words across the nine sections. Per section now: 01 52 /
+  02 42 / 03 111 / 04 133 / 05 118 / 06 67 / 07 77 / 08 99 / 09 8 words.
+- Approach: kept every number and claim, dropped the connective explanation around them.
+  Removed prose that duplicated a figure's own labels — the scatter's axis titles already
+  name both axes, the whole-slide colour key already explains the outline colours, and the
+  feature table's caption already defines the separation scale, so the paragraphs restating
+  those went. Figure captions were tightened but not gutted, since they are needed to read
+  the figures unaided.
+- Reason (from the user): they will present this live and write their own speaking notes per
+  section, so the page should carry the evidence and the headline claims, not the argument in
+  full sentences. Keep this in mind for any future edits — do not re-expand the prose.
+- Verification: all 31 + 11 substitutions asserted on exact match counts; programmatic check
+  that all 13 figure/table/interactive anchors survive (`nimgTable`, `funnel`, `cmp`,
+  `specTabs`, `scatter`, `featTable`, `slides`, `tiers`, `serChart`, `thrTable`, `roster`,
+  `bands`, `decisions`); `node --check` on page JS. Pre-trim copy kept as `report4.bak` in
+  the scratchpad. Layout not visually verified (no headless browser).
+
+### 2026-09-09 (later 4) — Live labelling exercise removed from the report
+
+- Change: Removed the "Would you measure these?" section at the user's request. The report
+  is now nine sections and purely read-only. Same URL.
+- Removed: the section markup, its CSS, its JS, the `window.claude.use("db")` call, and the
+  `db` capability declaration (republished with `capabilities: {}`). Verified the `labels`
+  collection was empty first, so no biology-team verdicts were lost. Section numbering
+  re-derived positionally; residual-string grep confirms zero references remain.
+- Consequence to remember: the report no longer collects labels, so the tadpole fine-tuning
+  set has to be produced another way. The section 08 recommendation card now says a set of
+  rejected cell images will be sent for labelling separately, and the footer no longer
+  claims the report tests the staining hypothesis. The crop-sampling script idea (extract
+  rejected crops to a folder plus a spreadsheet for verdicts) is the fallback route and has
+  not been built.
+- Current report sections: 01 summary table / 02 where cells are lost / 03 what rejected
+  cells look like / 04 difference is measurable / 05 whole-slide gallery (24 slides) /
+  06 series clustering / 07 why thresholds do not fix it / 08 what we propose /
+  09 all 92 individuals.
+- Files: scratchpad `report4.html`, `report_final.html` (5.2 MB).
+
+### 2026-09-09 (later 3) — Whole-slide section expanded to 24 slides; density claim corrected
+
+- Change: Added the five slides the biology team asked for plus a matched well-above-target
+  and just-above-target example for each, so section 05 now shows 24 slides in three
+  columns of 8 (plus the 176K/854K headline pair). Same URL; page now 5.2 MB.
+- Requested slides and their real bands (they span TWO bands, not one):
+  - far below target: 104K img01 (individual total 5), 883K img08 (4), 900K img13 (3)
+  - below target: 192K img02 (35), 367K img14 (23)
+  Third column is therefore headed "Short of target" and every card carries a band chip
+  (well above / just above / below target / far below) so the distinction stays visible.
+- Matched examples chosen by accepted-cell count, NOT by density. Sorting candidate images
+  by cell count surfaces dense clumped fields where the classifier rejects almost
+  everything (e.g. 207K img01: 321 detected, 2 accepted) - those look like failures and
+  would misrepresent a working individual. Added: well above - 326K, 992K, 312K, 280K,
+  991K; just above - 155K, 594K, 272K, 409K, 342K.
+- CORRECTION to the previous entry: the claim "the failing slides are the densest" is too
+  strong and the report now says so explicitly. Two of the requested slides are genuinely
+  sparse - 104K img01 has only 3 detected cells, 367K img14 has 9 - so on those a thin
+  smear is a real contributing factor alongside classifier rejection. The dense-and-rejected
+  pattern still holds for most (447K img13 149 detected / 0 measured, 852K img09 146/1,
+  192K img02 84/1), and the cohort averages are 32.9 detected per image below target vs
+  40.3 above, but low counts are NOT always a single cause. Do not present the sparse cases
+  as rejection failures.
+- Files: scratchpad `overlays_new2.json`, `slide_meta.json` (now carries a `band` field per
+  slide), `report4.html`, `report_final.html`.
+- Verification: asserted match counts on all 7 substitutions; programmatically confirmed all
+  24 tier slides have both an overlay image and metadata, and printed the band membership of
+  each column; `node --check` on page JS. Layout not visually verified (no headless browser).
+
+### 2026-09-09 (later 2) — Report labels unified to target-relative bands
+
+- Change: Fixed a real inconsistency in the meeting report. The word "moderate" carried two
+  contradictory meanings across sections, and one individual (422K) was labelled both ways.
+  All labels are now stated relative to the 40-cell target, and a four-band key is defined
+  once in section 03 and reused everywhere. Same URL.
+- The bug (worth remembering as a reporting-hygiene lesson): section 04's cell groups used
+  `aff_*` = "moderately affected", which were individuals BELOW target (11-38 cells);
+  section 05's slide tiers used "partly affected" for individuals ABOVE target (52-68
+  cells). 422K (68 cells) therefore appeared as part of the working reference group in
+  section 04 and as "partly affected" in section 05. Cause: section 05's tiers were chosen
+  to span the outcome range for visual contrast, without checking them against labels
+  already used two sections earlier.
+- Canonical bands now used throughout (by measured cells per individual, target = 40):
+  - Well above target: 150+ (section 05 working column: 125K 159, 893K 193, 534K 166)
+  - Above target: 40-149 (section 03/04 reference group `ok_*`, sampled 68-159)
+  - Below target: 15-39 (section 03/04 `aff_*`, sampled 11-38 - note the sample dips to 11,
+    so the page states the sampled range rather than implying a clean 15-39 cut)
+  - Far below target: under 15 (section 03/04 `ext_*` sampled 3-13; section 05 failing
+    column 447K 14, 852K 13, 856K 6)
+- Group labels are now "Accepted/Rejected · above target | below target | far below target",
+  each carrying its sampled cell range in the UI so a reader never has to infer the band.
+  "the 92 affected individuals" is now "the 92 individuals below target" throughout.
+- Files: scratchpad `patch3.py`, `report4.html`, `report_final.html` (3.66 MB).
+- Verification: every substitution asserted on an exact expected match count (23 + 8, all
+  matched); grep confirms zero remaining occurrences of the old labels; `node --check` on
+  page JS. Layout still not visually verified - no headless browser in this environment.
+
+### 2026-09-09 (later) — Whole-slide section expanded to three outcome tiers
+
+- Change: Section 05 of the meeting report now shows 11 whole-slide overlays instead of 2 —
+  the original 176K/854K pair as the headline comparison, plus a three-column tier gallery.
+  Same URL. Page is now 3.65 MB.
+- Tiers (one column each, 3 slides per column), with per-image verdict counts and the
+  individual's overall total in each caption:
+  - Working normally: 125K img05 (21 measured / 46 detected, 159 total), 893K img25
+    (19/52, 193), 534K img09 (19/81, 166)
+  - Partly affected: 422K img06 (21/67, 68), 178K img01 (18/40, 52), 340K img05 (16/38, 63)
+  - Failing: 447K img13 (0/149, 14), 852K img09 (1/146, 13), 856K img27 (0/141, 6)
+- Finding worth carrying forward: 447K image 13 has 149 detected cells and ZERO measured;
+  852K img09 has 146 detected and 1 measured. The failing slides are not sparse — they are
+  among the densest in the sample. That kills any residual "not enough cells on the slide"
+  reading of the low counts.
+- Nuance added honestly to the report: 893K is in the 8xxK series but works fine (193 cells
+  measured). So the batch effect is a subset of slides WITHIN the affected series, not the
+  whole series. Do not overstate the series story: 8xxK is 65% affected, not 100%.
+- Files: scratchpad `patch2.py`, `overlays_new.json`, `slide_meta.json`, `report3.html`,
+  `report_final.html`. Overlays downscaled to 1400 px wide at JPEG q72 (~100-210 KB each).
+- Verification: `node --check` on page JS; section numbering re-derived positionally (the
+  sequential string-replace approach corrupts numbering — always renumber by position).
+  Still no headless browser available, so layout remains visually unverified.
+
+### 2026-09-09 — Expanded cell-appearance evidence; domain shift quantified
+
+- Change: Expanded the meeting report's evidence section (same URL,
+  https://claude.ai/code/artifact/f43894a7-1c14-4a93-815d-4e237e648c6e) from ~60 cell
+  crops to 498, and added a new section 04 quantifying the appearance difference. Sections
+  renumbered to 01-10.
+- Sampling design (the point is the controls): four groups drawn so that accepted and
+  rejected cells come from the SAME slides within each cohort, which controls staining
+  within each comparison.
+  - `ok_good` 64 / `ok_bad` 48 - accepted / rejected on well-performing slides, 8 frogs
+    (345K, 197K, 324K, 260K, 335K, 125K, 422K, 334K)
+  - `aff_bad` 120 / `aff_good` 36 - moderately affected, 12 frogs
+  - `ext_bad` 200 / `ext_good` 30 - worst-affected, 12 frogs (854K, 900K, 856K, 870K,
+    865K, 877K, 883K, 104K, 852K, 855K, 859K, 860K)
+- Measured appearance features (`features_all.csv`, 469 cells with segmented nuclei):
+  nucleus/cytoplasm contrast, cytoplasm stain saturation, nucleus hue, nucleus darkness,
+  nucleus granularity, cytoplasm brightness. Computed from cell mask + nucleus mask at the
+  fixed 10-bit scale.
+- KEY RESULT (separation vs `ok_good`, ROC AUC):
+  - `ok_bad` (control, same slides): 0.51-0.66 on every feature. These features do NOT
+    track cell quality.
+  - `ext_bad`: nucleus darkness 0.972, cytoplasm saturation 0.953, nucleus contrast 0.941,
+    nucleus hue 0.893, granularity 0.714.
+  - `aff_bad`: intermediate, 0.62-0.81 - the effect is a gradient, not binary.
+  That contrast (control ~0.5 vs worst ~0.95 on the same features) is the actual evidence
+  for covariate shift: the features discriminate WHICH SLIDE a cell came from, not whether
+  it is measurable. Use this framing, not "the nuclei look odd".
+- Exposure confound ruled out: cytoplasm brightness is close across groups (ok_good 0.935,
+  ext_bad 0.886), and nucleus contrast - a within-cell ratio, invariant to overall
+  exposure - still separates at AUC 0.941. So the affected slides are not merely brighter;
+  the nuclei are genuinely less distinct from their own cytoplasm.
+- `ext_good` (the rare accepted cells on affected slides) cluster with `ext_bad`, not with
+  `ok_good` (nucleus darkness 0.496 vs 0.533 vs 0.357). Even the cells we did measure on
+  those slides are off-distribution.
+- Files: scratchpad `sample.py`, `sample2.py`, `groups.json`, `groups_ext.json`,
+  `features_all.csv`, `dist.json`, `patch.py`, `report_final.html`. NOTE the scratchpad is
+  session-scoped and was already cleared once mid-project - regenerate from the scripts, or
+  recover the published page with the Artifact tool's `read` action, which is how this
+  revision was built after the earlier files were lost.
+- Verification: `node --check` on the page JS; section numbering verified positionally
+  after an earlier sequential-replace bug renumbered sections wrongly. No headless browser
+  in this environment, so the rendered layout was again not visually inspected.
+- Remaining questions: unchanged. The biology team still has to say whether the granular
+  pale-nucleus cells are healthy tadpole erythrocytes (retrain) or degraded material
+  (re-image), and whether 8xxK/0xxK were prepared differently.
+
+### 2026-09-08 (later 3) — Meeting report published; staining hypothesis sharpened
+
+- Change: Built an interactive diagnostic report for the biology-team meeting, published as an
+  Artifact: https://claude.ai/code/artifact/f43894a7-1c14-4a93-815d-4e237e648c6e
+  Source and embedded assets are in the session scratchpad (`report_final.html`,
+  `assets.json`, `report_data.json`); regenerate rather than treating those as durable.
+- Files/outputs: report sections cover the `n_images` misreading, the three-stage funnel,
+  cell-level image evidence, whole-slide overlays, the series batch effect, the t_good
+  rerun, proposed next steps, and a searchable table of all 92 individuals.
+- New evidence (this refines the previous entry's hypothesis):
+  - Cut individual cell crops straight from the source TIFFs with masks, at a FIXED
+    intensity scale (data is 10-bit, 0-1023; scale = value/1023*255) so staining is
+    comparable between individuals. Per-crop min/max normalisation must NOT be used here —
+    it erases exactly the difference under investigation.
+  - The crops show the mechanism far more clearly than the classifier overlays do, because
+    the overlay JPGs are colour-tinted by the mask shading. Accepted cells in 176K have
+    pink cytoplasm and a compact, dark, smooth nucleus. Rejected cells in 854K and 900K are
+    intact, well-formed, single cells whose nuclei are BLUE-VIOLET and visibly GRANULAR.
+    This looks like a stain difference (different batch/timing/protocol), not a quality
+    difference. Earlier entry framed this as "granular mottled nucleus"; the crops show the
+    colour shift is as diagnostic as the texture.
+  - 176K's own rejected cells are genuinely poor (damaged, overlapping), so the classifier
+    is not broken in general — it fails specifically on this appearance. That control is
+    included in the report as a tab.
+- Live labelling exercise: the report declares the `db` capability and stores biology-team
+  verdicts as `labels/<image>__<mask_index>` documents with `{verdict: "measure"|"skip",
+  at: <epoch ms>}`. 24 rejected cells from 854K/900K/856K are presented. Read them back with
+  the Artifact tool, `action: "read_db"`, `db_op: "list"`, `collection: "labels"`. These
+  verdicts are the seed of the tadpole fine-tuning set.
+- Verification: all report figures come from `final_tadpole_results` and the
+  `diagnostic_tgood_0.50` rerun; the 92-row list reproduces the biology team's table exactly.
+  Page JS syntax-checked with `node --check`. No headless browser was available in this
+  environment, so the rendered layout was not visually inspected before publishing.
+- Remaining questions: unchanged from the previous entry, plus — collect the labelling
+  results after the meeting and use them to decide retrain vs re-image.
+
+### 2026-09-08 (later 2) — Biology-team low-count report diagnosed as classifier domain shift
+
+- Change: Reviewed Marcin's post-summer message listing 92 tadpole individuals below the
+  40-cell target. Verified his table against our outputs and traced the loss through the
+  segmentation -> classifier -> QC funnel for the whole 807-frog tadpole cohort.
+- Files/outputs: `classify_output/final_tadpole_results/{predictions.csv,
+  frog_aggregated_metrics_qc.csv,morphology_qc_frog_summary.csv}`; overlays
+  `TIFF_AH_854K_01_filtered_overlay.jpg` (0 good / 48 bad) and
+  `TIFF_AH_176K_05_filtered_overlay.jpg` (17 good / 16 bad / 3 rejected).
+- Verification:
+  - His 92 rows reproduce `frog_aggregated_metrics_qc.csv` exactly (`n_images` and
+    `n_cells` match on every row, zero mismatches). He is reading the QC table, which is
+    the correct biology-facing file.
+  - IMPORTANT REPORTING BUG (interpretation, not code): `n_images` in
+    `frog_aggregated_metrics_qc.csv` is `nunique(image_path)` computed over QC-passing
+    rows only, i.e. the number of images that yielded at least one measured cell — NOT
+    the number of images acquired or processed. Examples: 900K reports 3 images but 16
+    were segmented and classified; 104K reports 3 but 39 were processed; 854K reports 4
+    but 20; 856K reports 5 but 28. The biology team is likely reading these as "we only
+    photographed 3 slides", which understates the available data by 4-13x. Consider
+    emitting `n_images_processed` alongside `n_images_with_cells`.
+  - Funnel, 92 low frogs vs 715 others: candidates/image 32.9 vs 40.3 (segmentation is
+    NOT the bottleneck); classifier `good` rate 3.43% vs 10.67%; QC retention of good
+    cells 84.2% vs 95.1%. Final yield 0.95 vs 4.08 measured cells per image. The loss is
+    overwhelmingly at the classifier stage.
+  - The rejection is confident, not borderline: among cells verdicted `bad` in the low
+    frogs, median `p_good` = 0.0 and only 1.08% exceed `p_good` 0.05. There is no large
+    pool of near-threshold cells to recover, which is why the `t_good` 0.76 -> 0.50
+    diagnostic gained so little (see previous entry).
+  - Visual confirmation: `TIFF_AH_854K_01` contains 48 cleanly segmented, well-separated
+    cells with visible nuclei and the classifier called every one `bad`. Segmentation
+    quality is good; the classifier is wrong.
+  - Probable mechanism (visual, needs confirmation): in the working frog 176K the
+    accepted cells are pale with a small compact dark nucleus, while the cells 176K's
+    classifier rejects have a dark-red, granular, mottled nucleus. Every cell in 854K has
+    that granular-nucleus/eosinophilic appearance. The adult-trained classifier appears to
+    have learned "granular mottled nucleus = bad" as a quality cue, and a subset of
+    tadpole slides trips it on every cell.
+  - Batch effect: failures cluster by ID series. 8xxK: 65.3% of 49 frogs below 40,
+    median good rate 4.5%. 0xxK: 37.1% of 70 below 40. All other series are 0-14%
+    (2xxK/3xxK/9xxK/6xxK are ~1-3%). Roughly 58 of the 92 low frogs come from the 8xxK
+    and 0xxK series alone. This is consistent with a staining/acquisition batch, not with
+    biology.
+- Decision/recommendation: threshold and QC relaxation cannot fix this and would only
+  trade a count increase for unvalidated cells. The fix is to fine-tune the classifier on
+  tadpole crops, with labelling effort concentrated on the 8xxK and 0xxK series. Adult
+  results are unaffected and should not be rerun.
+- Remaining questions:
+  - Confirm the granular-nucleus hypothesis by sampling `bad` crops from 8xxK/0xxK and
+    having the biology team label them good/bad; that labelled set doubles as fine-tuning
+    data.
+  - Are these cells biologically normal for tadpoles, or genuinely degraded slides? Only
+    the biology team can answer, and the answer decides whether we retrain or re-image.
+  - Whether `max_nc_ratio=0.30` (adult-derived) is right for tadpoles remains open from
+    the previous entry.
+
+### 2026-09-08 (later) — t_good 0.50 diagnostic evaluated
+
+- Change: Evaluated the completed diagnostic run `classify_output/diagnostic_tgood_0.50`
+  against the `t_good=0.76` baseline `classify_output/final_tadpole_results`. This
+  answers the open question logged earlier the same day with exact rerun numbers, not
+  a threshold-only simulation: the diagnostic directory contains its own
+  `filtered_areas_qc.csv`, so morphology measurements for newly accepted cells exist.
+- Files/outputs:
+  - `classify_output/diagnostic_tgood_0.50/{predictions,filtered_areas,filtered_areas_qc,filtered_areas_qc_rejected}.csv`
+  - `classify_output/diagnostic_tgood_0.50/morphology_qc_{frog_summary,threshold_sensitivity}.csv`
+  - `classify_output/diagnostic_tgood_0.50/overlays/` (not yet visually reviewed)
+  - baseline: `classify_output/final_tadpole_results/` (same `max_nc_ratio=0.30`, so QC
+    counts are directly comparable)
+- Thresholds or dataset: 7-frog tadpole subset `104K, 192K, 367K, 465K, 854K, 883K, 900K`;
+  identical 10259 candidate masks in both runs; `t_bad=0.10`; `t_good` 0.76 vs 0.50;
+  `min_nc_ratio=0.05`, `max_nc_ratio=0.30`.
+- Verification (measured, both runs are real reruns):
+  - Classifier-good cells 179 -> 239 (+60). Cells verdicted `bad` are unchanged
+    (10020 in both runs), as expected: lowering `t_good` only converts `rejected` cells.
+  - QC-pass cells 113 -> 148 (+35).
+  - Newly accepted cells are morphologically ordinary, not junk: QC pass rate 58.3%
+    (35/60) versus 63.1% (113/179) for previously accepted cells; among QC-pass cells
+    `nc_ratio` mean 0.238 (new) vs 0.255 (old), `area_um2` 267 vs 291,
+    `nucleus_area_um2` 63.5 vs 73.5. QC rejections of new cells are almost entirely
+    `nc_ratio_above_max` (23 of 25).
+  - Per-frog QC-pass, 0.76 -> 0.50: 104K 5->7, 192K 35->42, 367K 23->33, 465K 39->46,
+    854K 4->6, 883K 4->6, 900K 3->8. Only 192K and 465K cross the 40-cell target.
+  - Recomputing QC from the diagnostic `nc_ratio` column at looser upper limits
+    (classifier `t_good=0.50` held fixed): `max_nc_ratio=0.40` gives 104K 11, 192K 65,
+    367K 55, 465K 62, 854K 6, 883K 6, 900K 8 (3 of 7 frogs >= 40); `0.50` adds almost
+    nothing beyond that (3 of 7). Subset totals from
+    `morphology_qc_threshold_sensitivity.csv`: 148 / 213 / 223 / 228 QC-pass at
+    `max_nc_ratio` 0.30 / 0.40 / 0.50 / 0.80 of 239 classifier-good cells.
+- Findings:
+  1. Lowering `t_good` from 0.76 to 0.50 does materially increase valid cells
+     (+31% QC-pass on this subset) and does not visibly degrade the accepted
+     population's morphology, but it is not sufficient to fix the low-count problem.
+  2. For 192K, 367K and 465K the binding constraint is morphology QC, not the
+     classifier: `max_nc_ratio=0.30` is what holds 367K below 40.
+  3. For 104K, 854K, 883K and 900K neither relaxation helps. These frogs have
+     271 / 533 / 148 / 512 candidate masks of which ~97-99% are verdicted `bad` even at
+     `t_good=0.50`. Their bottleneck is upstream — segmentation quality or classifier
+     domain shift on tadpole material — and cannot be reached by threshold tuning.
+- Remaining questions:
+  - Are the newly accepted cells correct on inspection? The overlays in
+    `classify_output/diagnostic_tgood_0.50/overlays/` have not been visually or
+    biologically reviewed. Do not adopt `t_good=0.50` for production before that.
+  - Is `max_nc_ratio=0.30` biologically right for tadpoles? Tadpole RBC nuclei may
+    legitimately occupy a larger cell fraction than adult RBCs, in which case 0.30 is an
+    adult-derived limit being misapplied. This needs a biological decision, not a
+    count-maximising one.
+  - For the ~99%-bad frogs, inspect candidate masks and classifier confidence
+    distributions directly to separate segmentation failure from domain shift.
 
 ### 2026-09-08
 

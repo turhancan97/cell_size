@@ -233,3 +233,5 @@ notebooks/figures/
 
 latest_adults.csv
 latest_tadpoles.csv
+
+notebooks/*.pdf
