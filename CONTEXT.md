@@ -288,6 +288,117 @@ list and preserving the known working combination.
 Record new entries at the top in reverse chronological order. Include the date, what
 changed, relevant paths/thresholds, verification performed, and unresolved questions.
 
+### 2026-09-15 (later 2) — Newly-accepted cells visually verified; deliverables finalised
+
+- VERIFICATION DONE. 214 overlays rendered and reviewed manually across 7 recovered
+  individuals: 104K, 192K, 367K, 465K, 854K, 883K, 900K. Output kept at
+  `classify_output/full_tadpole_results/overlay_subset/overlays/`.
+- Scope of the check: 10,259 candidate cells shown, 1,223 classifier-good, 751 QC-pass.
+  1,060 of the accepted cells are ones the ADULT model had rejected — i.e. 1.6% of all
+  65,564 newly-accepted cells, sampled from the individuals that changed most.
+- VERDICT: the accepted cells are correct. This closes the "no human has looked at them"
+  caveat that had been standing since the run completed. It does NOT make the check a
+  census — 800 of 807 individuals remain visually unchecked and rest on the statistical
+  case (adult-model recall 48.2% on human labels, held-out F1 0.889, acceptance rate
+  17.8% vs human base rate 20.5%).
+- Not reviewed, and still worth a look if anyone has time: 100K (the only individual still
+  below target, 32 cells) and a high-count control such as 893K for appearance comparison.
+- Deliverables finalised:
+  - Report artifact updated to v2 (visual check recorded in the verdict box, the decision
+    card, the caveat list and the provenance block):
+    https://claude.ai/artifact/R9xVjqUPx4y36aprGVebAJ
+  - `frog_aggregated_metrics_qc_no_px.xlsx` regenerated for the new run — 807 rows,
+    21 columns, `_px` columns dropped, column list verified identical to the July file,
+    `frog_id` preserved as text.
+- ENVIRONMENT NOTE: `openpyxl` was MISSING from the `cell-size` env, so pandas could not
+  write xlsx at all. Installed `openpyxl` 3.1.5 + `et_xmlfile` 2.0.0 with `pip install
+  --no-deps` (pure-Python wheels, no compiled parts). Verified afterwards that torch 2.5.1
+  and torchvision 0.20.1 still import and are unchanged. Needed again for any future
+  spreadsheet deliverable.
+- REMAINING OPEN QUESTION for the biology team: `max_nc_ratio=0.30` now discards 8,424
+  cells (86% of them in 0.30-0.40); raising to 0.40 returns 7,205. Unchanged by the visual
+  check — it is a biological plausibility question, not a classifier question.
+
+### 2026-09-15 (later) — Overlay generation vectorised and parallelised
+
+- `generate_filtered_overlay` had the same O(cells x full-mask) bug as the crop path: it ran
+  `masks == label` over the whole 3984x6000 frame once per cell. Replaced with label-indexed
+  lookup tables (fill colour, alpha, outline colour, is-good) applied in one vectorised pass;
+  `_to_display_rgb` now uses the integer-LUT rescale instead of a float64 copy of the frame.
+  Dense image (649 labels): 64 s -> 4 s. Sparse images are unchanged or marginally slower —
+  the win scales with cell count, and the mean image has ~39 cells.
+- Blend is done one channel at a time in float64, deliberately: float32 was 2x cheaper in
+  memory but produced a 1/255 difference. Output is now pixel-identical (max|diff| = 0)
+  to the pre-patch implementation, verified on images with 1, 22 and 649 labels.
+- `generate_filtered_overlays_from_predictions` parallelised with the same pool pattern as
+  step 2 (spawn + `_single_threaded_env()`, `imap_unordered` since each task writes its own
+  file), `num_workers` wired through `classify_overlays.yaml` and `classify.yaml`.
+- MEASURED: 16 images (900K) in 95 s on 4 workers = 5.9 s/image wall, vs 17.1 s/image serial.
+- Overlays still walk the whole `data_dir`, so a review subset needs a directory of symlinks
+  to the wanted per-image folders (the diagnostic-subset pattern documented above). The full
+  19,445-image set is ~92 h serial and was never regenerated for the tadpole-model run.
+
+### 2026-09-15 — Tadpole-native classifier trained and applied; low-count problem resolved
+
+- HEADLINE: individuals below the 40-cell target went from 92 to 1 (of 807). QC-pass cells
+  72,175 -> 121,311. Median cells/individual 87 -> 141. Report artifact:
+  https://claude.ai/artifact/R9xVjqUPx4y36aprGVebAJ
+- New results: `classify_output/full_tadpole_results/` (SLURM 501013). The July baseline was
+  RENAMED `final_tadpole_results` -> `old_tadpole_results`; earlier log entries referring to
+  `final_tadpole_results` mean that directory.
+- Cause of the change: classifier only. Segmentation was NOT re-run — both runs measure the
+  same 765,786 candidate cells from the same masks. Trained efficientnet_b0 (unfrozen) on
+  `latest_tadpoles.csv` (7,543 hand-labelled tadpole cells, 1,548 good / 5,995 bad,
+  reviewer marcin.czarnoleski@uj.edu.pl, delivered 2026-09-11). Held-out test F1 0.889
+  (precision 0.848, recall 0.935); val F1 0.890. Checkpoint:
+  `classifier_output/Tadpoles/clf_efficientnet_b0_freezefalse_..._20260914_122813/best_model.pt`.
+  Fine-tuning beat frozen-encoder probing by 0.08-0.11 F1 across all three encoders.
+- DECISIVE VALIDATION (does not require trusting either model): scored both models against the
+  7,541 human-labelled cells. The ADULT model had never seen any of them, so its number is a
+  fair estimate — recall on human-"good" cells 48.2%, precision 93.2%. It was not making
+  mistakes; it was silently discarding more than half the good cells. That is the low-count
+  problem measured at the decision level. New model 96.0% recall on the same set, but it
+  trained on ~70% of them — quote 0.889 held-out F1 as the honest figure, never 96.0%.
+- Corroboration: human base rate of good cells 20.5%; new model accepts 17.8% of all
+  candidates, old accepted 9.9%. 591 of 807 individuals contain NO labelled image at all —
+  their median is 146 cells and none is below target. Training contamination is 1.1% of
+  measured cells.
+- Measurements barely moved, so this is more data of the same kind: medians cell area
+  -2.8%, nucleus area +3.4%, nc_ratio +7.0%; per-individual means correlate 0.991 / 0.987 /
+  0.968 between runs. The nc_ratio rise (+5.1% on per-individual means) is the one biology
+  question worth raising — the new model accepts more large-nucleus cells.
+- CAVEAT for any future comparison: this run changed TWO variables — model AND thresholds
+  (t_bad 0.10->0.20, t_good 0.76->0.80). Both moved STRICTER, so they cannot explain the
+  increase, but it is not a clean single-variable comparison.
+- Open items: (1) max_nc_ratio=0.30 now discards 8,424 cells (was 1,308), 86% of them in
+  0.30-0.40; raising to 0.40 returns 7,205 — a real decision now, unlike in September when it
+  affected a handful. (2) Individual 100K is the only one still short (32 cells, was 7;
+  199 candidates, 72 classifier-good — the shortfall is now at QC, not the classifier).
+  (3) No human has visually checked any of the 65,564 newly-accepted cells; overlays were not
+  generated for this run.
+
+### 2026-09-15 — Pipeline performance work; resume support added
+
+- `classify_main.py` gained `predictions_csv=<path>`: reuses a finished inference pass and
+  skips step 1. Added after SLURM 500382 completed 22.8 h of inference and was then killed by
+  the 24 h wall 74 min into step 2, which buffers in memory and writes only at the end.
+- Step 1 was O(cells x full-mask) — `_crop_cell` ran `np.where(mask == label)` over the whole
+  3984x6000 mask once per cell. Added `_label_bboxes()` (one `scipy.ndimage.find_objects`
+  pass), an integer-LUT rescale in `_read_image_rgb` (was a float64 copy of the full frame),
+  and a single-pass `match_nuclei_to_cells`. Measured 37x / 5.2x / 4.4x on those three;
+  read+crop stage 5.9x overall. Verified crops bit-identical on 8 images (9-649 cells).
+- Step 2 parallelised over images (`Pool.imap`, spawn, sorted tasks so row order is
+  independent of worker count), `num_workers` defaulting to `len(os.sched_getaffinity(0))`.
+  MEASURED RESULT: 19,371 images in 15 min on 10 CPUs, vs a 3.2 h serial projection.
+- IMPORTANT GOTCHA: the first parallel attempt was 0.9x — SLOWER. BLAS/OpenMP were
+  spin-waiting across ~5.6 cores per image while doing less work than one pinned thread
+  (0.89 s/img wall at 4.95 s CPU, vs 0.71 s/img at 0.81 s CPU). `_single_threaded_env()` pins
+  OMP/MKL/OpenBLAS to 1 thread in the environment the pool spawns from; this is what makes
+  process parallelism work at all. Do not remove it.
+- Correctness: parallel step 2 output is byte-identical to serial, and both match the July
+  reference `filtered_areas.csv` column-for-column on a 120-image random sample and on the
+  24 densest images. `scipy` added to `pyproject.toml` (was only transitive via scikit-image).
+
 ### 2026-09-09 (later 9) — Adult training cells added as the reference distribution; conclusion sharpened
 
 - Change: Added the actual classifier training data to the report's appearance analysis, so the
