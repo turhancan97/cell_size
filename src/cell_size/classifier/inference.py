@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import multiprocessing
+import os
 from pathlib import Path
 from typing import Any
 
@@ -154,12 +157,40 @@ def _load_nucleus_mask(image_folder: Path, image_stem: str) -> np.ndarray | None
     return None
 
 
+def _render_one_overlay(task: tuple) -> tuple[str, bool, str | None]:
+    """Draw one image's overlay. Runs in a worker process."""
+    img_path_str, verdicts, overlay_path_str = task
+    img_path = Path(img_path_str)
+    image_stem = img_path.stem
+
+    mask = _load_mask(img_path.parent, image_stem)
+    if mask is None:
+        return image_stem, False, "no mask found"
+
+    img_preds = pd.DataFrame(verdicts, columns=["mask_index", "predicted_verdict"])
+    nuc_mask = _load_nucleus_mask(img_path.parent, image_stem)
+    img_rgb = _read_image_rgb(img_path)
+    generate_filtered_overlay(
+        img_rgb,
+        mask,
+        img_preds,
+        Path(overlay_path_str),
+        nuc_masks=nuc_mask,
+    )
+    return image_stem, True, None
+
+
 def generate_filtered_overlays_from_predictions(
     data_dir: Path,
     predictions_df: pd.DataFrame,
     output_dir: Path,
+    num_workers: int | None = None,
 ) -> Path:
-    """Generate filtered overlay images from an existing predictions table."""
+    """Generate filtered overlay images from an existing predictions table.
+
+    Overlays are rendered in parallel across ``num_workers`` processes
+    (default: the CPUs allocated to this job).
+    """
     data_dir = Path(data_dir)
     output_dir = Path(output_dir)
     overlays_dir = output_dir / "overlays"
@@ -172,29 +203,57 @@ def generate_filtered_overlays_from_predictions(
     all_images = _find_processed_images(data_dir)
     logger.info("Found %d processed images for overlay generation", len(all_images))
 
+    # Group verdicts once, rather than re-scanning the whole table per image.
+    by_image = {
+        str(name): group[["mask_index", "predicted_verdict"]].values.tolist()
+        for name, group in predictions_df.groupby("image_path", sort=False)
+    }
+
+    tasks: list[tuple] = []
     for img_path in all_images:
-        image_stem = img_path.stem
-        img_preds = predictions_df[predictions_df["image_path"] == image_stem]
-        if img_preds.empty:
+        verdicts = by_image.get(img_path.stem)
+        if not verdicts:
             continue
+        tasks.append((
+            str(img_path),
+            verdicts,
+            str(overlays_dir / f"{img_path.stem}_filtered_overlay.jpg"),
+        ))
 
-        mask = _load_mask(img_path.parent, image_stem)
-        if mask is None:
-            logger.warning("No mask found for %s, skipping overlay", img_path)
-            continue
+    if not tasks:
+        logger.warning("No images in %s matched the predictions table.", data_dir)
+        return overlays_dir
 
-        nuc_mask = _load_nucleus_mask(img_path.parent, image_stem)
-        img_rgb = _read_image_rgb(img_path)
-        overlay_path = overlays_dir / f"{image_stem}_filtered_overlay.jpg"
-        generate_filtered_overlay(
-            img_rgb,
-            mask,
-            img_preds,
-            overlay_path,
-            nuc_masks=nuc_mask,
-        )
+    workers = _resolve_worker_count(num_workers, len(tasks))
+    logger.info("Rendering %d overlays with %d worker process(es)", len(tasks), workers)
 
+    def _consume(result: tuple, done: int) -> None:
+        image_stem, ok, reason = result
+        if not ok:
+            logger.warning("Skipping overlay for %s: %s", image_stem, reason)
+        if done % 50 == 0 or done == len(tasks):
+            logger.info("Rendered %d/%d overlays", done, len(tasks))
+
+    if workers > 1:
+        ctx = multiprocessing.get_context("spawn")
+        with _single_threaded_env(), ctx.Pool(processes=workers) as pool:
+            for done, result in enumerate(
+                pool.imap_unordered(_render_one_overlay, tasks, chunksize=2), start=1
+            ):
+                _consume(result, done)
+    else:
+        for done, task in enumerate(tasks, start=1):
+            _consume(_render_one_overlay(task), done)
+
+    logger.info("Filtered overlays -> %s", overlays_dir)
     return overlays_dir
+
+
+def _as_label_image(mask: np.ndarray) -> np.ndarray:
+    """Return ``mask`` as an integer label image, copying only when required."""
+    if np.issubdtype(mask.dtype, np.integer):
+        return mask
+    return mask.astype(np.int32)
 
 
 def match_nuclei_to_cells(
@@ -207,17 +266,27 @@ def match_nuclei_to_cells(
     cell is selected. Cells with no overlapping nucleus map to ``None``.
     When multiple nuclei overlap a cell, only the largest is kept.
     """
-    matches: dict[int, int | None] = {}
-    for cell_label in np.unique(cell_masks):
-        if cell_label == 0:
-            continue
-        nuc_in_cell = nuc_masks[cell_masks == cell_label]
-        nuc_in_cell = nuc_in_cell[nuc_in_cell > 0]
-        if len(nuc_in_cell) == 0:
-            matches[cell_label] = None
-            continue
-        values, counts = np.unique(nuc_in_cell, return_counts=True)
-        matches[cell_label] = int(values[counts.argmax()])
+    matches: dict[int, int | None] = {
+        int(label): None for label in np.unique(cell_masks) if label != 0
+    }
+
+    # Count every (cell, nucleus) overlap in a single pass over the overlapping
+    # pixels, instead of comparing the full mask once per cell.
+    overlap = (cell_masks > 0) & (nuc_masks > 0)
+    cells = cell_masks[overlap].astype(np.int64)
+    nuclei = nuc_masks[overlap].astype(np.int64)
+    if cells.size == 0:
+        return matches
+
+    stride = int(nuclei.max()) + 1
+    pairs, counts = np.unique(cells * stride + nuclei, return_counts=True)
+    best: dict[int, tuple[int, int]] = {}
+    for pair, count in zip(pairs.tolist(), counts.tolist()):
+        cell_label, nuc_label = divmod(pair, stride)
+        if cell_label not in best or count > best[cell_label][1]:
+            best[cell_label] = (nuc_label, count)
+    for cell_label, (nuc_label, _) in best.items():
+        matches[cell_label] = nuc_label
     return matches
 
 
@@ -432,12 +501,187 @@ def run_inference(
     return df
 
 
+def _measure_image_cells(task: tuple) -> dict:
+    """Measure every listed cell in one image. Runs in a worker process.
+
+    Returns the per-cell records plus the flags the caller needs to decide
+    which columns the output CSV should carry.
+    """
+    from skimage.measure import regionprops_table
+
+    from cell_size.metadata import resolve_pixel_scale
+
+    image_name, labels, folder_str, config_pixel_to_um, compute_diameters = task
+    out = {
+        "image_name": image_name,
+        "records": [],
+        "has_um": False,
+        "has_nucleus": False,
+        "frog_id_missing": False,
+    }
+
+    frog_id = _extract_frog_id(str(image_name))
+    if frog_id is None:
+        out["frog_id_missing"] = True
+
+    if folder_str is None:
+        return out
+    image_folder = Path(folder_str)
+
+    mask = _load_mask(image_folder, str(image_name))
+    if mask is None:
+        return out
+
+    img_path = _find_source_image(image_folder, str(image_name))
+    pixel_to_um = None
+    if img_path is not None:
+        pixel_to_um = resolve_pixel_scale(img_path, config_pixel_to_um)
+    elif config_pixel_to_um is not None:
+        pixel_to_um = config_pixel_to_um
+
+    if pixel_to_um is not None:
+        out["has_um"] = True
+
+    # Cell regionprops
+    props_lut: dict[int, dict] = {}
+    if compute_diameters:
+        props = regionprops_table(
+            _as_label_image(mask),
+            properties=("label", "area", "major_axis_length", "minor_axis_length"),
+        )
+        for i in range(len(props["label"])):
+            props_lut[int(props["label"][i])] = {
+                "area": int(props["area"][i]),
+                "major": float(props["major_axis_length"][i]),
+                "minor": float(props["minor_axis_length"][i]),
+            }
+
+    # Nucleus matching (if nucleus mask exists)
+    nuc_mask = _load_nucleus_mask(image_folder, str(image_name))
+    nuc_matches: dict[int, int | None] = {}
+    nuc_props_lut: dict[int, dict] = {}
+    if nuc_mask is not None:
+        out["has_nucleus"] = True
+        nuc_matches = match_nuclei_to_cells(mask, nuc_mask)
+        nuc_props = regionprops_table(
+            _as_label_image(nuc_mask),
+            properties=("label", "area", "major_axis_length", "minor_axis_length"),
+        )
+        for i in range(len(nuc_props["label"])):
+            nuc_props_lut[int(nuc_props["label"][i])] = {
+                "area": int(nuc_props["area"][i]),
+                "major": float(nuc_props["major_axis_length"][i]),
+                "minor": float(nuc_props["minor_axis_length"][i]),
+            }
+
+    records: list[dict] = []
+    for label in labels:
+        label = int(label)
+
+        if label in props_lut:
+            area_px = props_lut[label]["area"]
+            major_px = props_lut[label]["major"]
+            minor_px = props_lut[label]["minor"]
+        else:
+            area_px = int((mask == label).sum())
+            major_px = None
+            minor_px = None
+
+        rec: dict = {
+            "image_path": image_name,
+            "frog_id": frog_id,
+            "mask_index": label,
+            "area_px": area_px,
+        }
+        if pixel_to_um is not None:
+            rec["area_um2"] = round(area_px * pixel_to_um**2, 4)
+
+        if compute_diameters and major_px is not None:
+            rec["major_axis_px"] = round(major_px, 2)
+            rec["minor_axis_px"] = round(minor_px, 2)
+            rec["cell_axis_ratio"] = _safe_ratio(major_px, minor_px)
+            if pixel_to_um is not None:
+                rec["major_axis_um"] = round(major_px * pixel_to_um, 4)
+                rec["minor_axis_um"] = round(minor_px * pixel_to_um, 4)
+        elif compute_diameters:
+            rec["major_axis_px"] = np.nan
+            rec["minor_axis_px"] = np.nan
+            rec["cell_axis_ratio"] = np.nan
+
+        # Nucleus columns
+        if nuc_mask is not None:
+            nuc_label = nuc_matches.get(label)
+            if nuc_label is not None and nuc_label in nuc_props_lut:
+                np_info = nuc_props_lut[nuc_label]
+                rec["nucleus_area_px"] = np_info["area"]
+                rec["nucleus_major_axis_px"] = round(np_info["major"], 2)
+                rec["nucleus_minor_axis_px"] = round(np_info["minor"], 2)
+                rec["nucleus_axis_ratio"] = _safe_ratio(np_info["major"], np_info["minor"])
+                rec["nc_ratio"] = round(np_info["area"] / max(area_px, 1), 4)
+                if pixel_to_um is not None:
+                    rec["nucleus_area_um2"] = round(np_info["area"] * pixel_to_um**2, 4)
+                    rec["nucleus_major_axis_um"] = round(np_info["major"] * pixel_to_um, 4)
+                    rec["nucleus_minor_axis_um"] = round(np_info["minor"] * pixel_to_um, 4)
+            else:
+                rec["nucleus_area_px"] = None
+                rec["nucleus_major_axis_px"] = None
+                rec["nucleus_minor_axis_px"] = None
+                rec["nucleus_axis_ratio"] = np.nan
+                rec["nc_ratio"] = None
+
+        records.append(rec)
+
+    out["records"] = records
+    return out
+
+
+# BLAS/OpenMP spin-waiting costs ~5.6 cores per image while making the work
+# *slower*; pinning each worker to one thread frees those cores for real
+# per-image parallelism. Must be set before the workers import numpy, so it is
+# applied to the environment the pool is spawned from.
+_SINGLE_THREAD_ENV = {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+}
+
+
+@contextlib.contextmanager
+def _single_threaded_env():
+    """Temporarily pin BLAS/OpenMP to one thread (inherited by spawned workers)."""
+    previous = {k: os.environ.get(k) for k in _SINGLE_THREAD_ENV}
+    os.environ.update(_SINGLE_THREAD_ENV)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _resolve_worker_count(num_workers: int | None, n_tasks: int) -> int:
+    """Worker processes to use: config value, else the CPUs actually allocated."""
+    if num_workers is not None and int(num_workers) > 0:
+        requested = int(num_workers)
+    else:
+        try:
+            requested = len(os.sched_getaffinity(0))
+        except AttributeError:
+            requested = os.cpu_count() or 1
+    return max(1, min(requested, n_tasks))
+
+
 def compute_filtered_areas(
     data_dir: Path,
     predictions_df: pd.DataFrame,
     output_path: Path,
     config_pixel_to_um: float | None = None,
     compute_diameters: bool = True,
+    num_workers: int | None = None,
 ) -> Path:
     """Compute cell areas (and optionally diameters) for 'good' cells.
 
@@ -447,131 +691,63 @@ def compute_filtered_areas(
     When a nucleus mask (``<stem>_nucleus_mask.*``) is found alongside
     the membrane mask, nucleus measurements (area, major/minor axis,
     N/C ratio) are automatically added.
+
+    Images are measured in parallel across ``num_workers`` processes
+    (default: the CPUs allocated to this job). Output row order is
+    independent of the worker count.
     """
-    from skimage.measure import regionprops_table
-
-    from cell_size.metadata import resolve_pixel_scale
-
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     good_df = predictions_df[predictions_df["predicted_verdict"] == "good"]
+    folder_index = _index_image_folders(Path(data_dir))
+
+    tasks: list[tuple] = []
+    for image_name, group in good_df.groupby("image_path", sort=True):
+        folder = folder_index.get(str(image_name))
+        tasks.append((
+            str(image_name),
+            [int(v) for v in group["mask_index"].tolist()],
+            str(folder) if folder is not None else None,
+            config_pixel_to_um,
+            compute_diameters,
+        ))
+
+    workers = _resolve_worker_count(num_workers, len(tasks))
+    logger.info(
+        "Measuring %d images with %d worker process(es)", len(tasks), workers
+    )
+
     records: list[dict] = []
     has_any_um = False
     has_any_nucleus = False
-    unparsed_frog_images: set[str] = set()
+    unparsed_frog_images: list[str] = []
 
-    for image_name, group in good_df.groupby("image_path"):
-        frog_id = _extract_frog_id(str(image_name))
-        if frog_id is None and image_name not in unparsed_frog_images:
-            unparsed_frog_images.add(str(image_name))
-            logger.warning("Could not parse frog_id from image name '%s'", image_name)
+    def _consume(result: dict, done: int) -> None:
+        nonlocal has_any_um, has_any_nucleus
+        records.extend(result["records"])
+        has_any_um = has_any_um or result["has_um"]
+        has_any_nucleus = has_any_nucleus or result["has_nucleus"]
+        if result["frog_id_missing"]:
+            unparsed_frog_images.append(result["image_name"])
+        if done % 1000 == 0:
+            logger.info("Measured %d/%d images (%d cells)", done, len(tasks), len(records))
 
-        image_folder = _find_image_folder(data_dir, str(image_name))
-        if image_folder is None:
-            continue
+    if workers > 1:
+        # "spawn" keeps the workers independent of any CUDA state the
+        # inference step left in this process.
+        ctx = multiprocessing.get_context("spawn")
+        with _single_threaded_env(), ctx.Pool(processes=workers) as pool:
+            for done, result in enumerate(
+                pool.imap(_measure_image_cells, tasks, chunksize=8), start=1
+            ):
+                _consume(result, done)
+    else:
+        for done, task in enumerate(tasks, start=1):
+            _consume(_measure_image_cells(task), done)
 
-        mask = _load_mask(image_folder, str(image_name))
-        if mask is None:
-            continue
-
-        img_path = _find_source_image(image_folder, str(image_name))
-        pixel_to_um = None
-        if img_path is not None:
-            pixel_to_um = resolve_pixel_scale(img_path, config_pixel_to_um)
-        elif config_pixel_to_um is not None:
-            pixel_to_um = config_pixel_to_um
-
-        if pixel_to_um is not None:
-            has_any_um = True
-
-        # Cell regionprops
-        props_lut: dict[int, dict] = {}
-        if compute_diameters:
-            props = regionprops_table(
-                mask.astype(np.int32),
-                properties=("label", "area", "major_axis_length", "minor_axis_length"),
-            )
-            for i in range(len(props["label"])):
-                props_lut[int(props["label"][i])] = {
-                    "area": int(props["area"][i]),
-                    "major": float(props["major_axis_length"][i]),
-                    "minor": float(props["minor_axis_length"][i]),
-                }
-
-        # Nucleus matching (if nucleus mask exists)
-        nuc_mask = _load_nucleus_mask(image_folder, str(image_name))
-        nuc_matches: dict[int, int | None] = {}
-        nuc_props_lut: dict[int, dict] = {}
-        if nuc_mask is not None:
-            has_any_nucleus = True
-            nuc_matches = match_nuclei_to_cells(mask, nuc_mask)
-            nuc_props = regionprops_table(
-                nuc_mask.astype(np.int32),
-                properties=("label", "area", "major_axis_length", "minor_axis_length"),
-            )
-            for i in range(len(nuc_props["label"])):
-                nuc_props_lut[int(nuc_props["label"][i])] = {
-                    "area": int(nuc_props["area"][i]),
-                    "major": float(nuc_props["major_axis_length"][i]),
-                    "minor": float(nuc_props["minor_axis_length"][i]),
-                }
-
-        for _, row in group.iterrows():
-            label = int(row["mask_index"])
-
-            if label in props_lut:
-                area_px = props_lut[label]["area"]
-                major_px = props_lut[label]["major"]
-                minor_px = props_lut[label]["minor"]
-            else:
-                area_px = int((mask == label).sum())
-                major_px = None
-                minor_px = None
-
-            rec: dict = {
-                "image_path": image_name,
-                "frog_id": frog_id,
-                "mask_index": label,
-                "area_px": area_px,
-            }
-            if pixel_to_um is not None:
-                rec["area_um2"] = round(area_px * pixel_to_um**2, 4)
-
-            if compute_diameters and major_px is not None:
-                rec["major_axis_px"] = round(major_px, 2)
-                rec["minor_axis_px"] = round(minor_px, 2)
-                rec["cell_axis_ratio"] = _safe_ratio(major_px, minor_px)
-                if pixel_to_um is not None:
-                    rec["major_axis_um"] = round(major_px * pixel_to_um, 4)
-                    rec["minor_axis_um"] = round(minor_px * pixel_to_um, 4)
-            elif compute_diameters:
-                rec["major_axis_px"] = np.nan
-                rec["minor_axis_px"] = np.nan
-                rec["cell_axis_ratio"] = np.nan
-
-            # Nucleus columns
-            if nuc_mask is not None:
-                nuc_label = nuc_matches.get(label)
-                if nuc_label is not None and nuc_label in nuc_props_lut:
-                    np_info = nuc_props_lut[nuc_label]
-                    rec["nucleus_area_px"] = np_info["area"]
-                    rec["nucleus_major_axis_px"] = round(np_info["major"], 2)
-                    rec["nucleus_minor_axis_px"] = round(np_info["minor"], 2)
-                    rec["nucleus_axis_ratio"] = _safe_ratio(np_info["major"], np_info["minor"])
-                    rec["nc_ratio"] = round(np_info["area"] / max(area_px, 1), 4)
-                    if pixel_to_um is not None:
-                        rec["nucleus_area_um2"] = round(np_info["area"] * pixel_to_um**2, 4)
-                        rec["nucleus_major_axis_um"] = round(np_info["major"] * pixel_to_um, 4)
-                        rec["nucleus_minor_axis_um"] = round(np_info["minor"] * pixel_to_um, 4)
-                else:
-                    rec["nucleus_area_px"] = None
-                    rec["nucleus_major_axis_px"] = None
-                    rec["nucleus_minor_axis_px"] = None
-                    rec["nucleus_axis_ratio"] = np.nan
-                    rec["nc_ratio"] = None
-
-            records.append(rec)
+    for image_name in unparsed_frog_images:
+        logger.warning("Could not parse frog_id from image name '%s'", image_name)
 
     cols = ["image_path", "frog_id", "mask_index", "area_px"]
     if has_any_um:
@@ -625,6 +801,18 @@ def _find_processed_images(data_dir: Path) -> list[Path]:
                     found.append(img)
                 break
     return found
+
+
+def _index_image_folders(data_dir: Path) -> dict[str, Path]:
+    """Map image stem -> per-image folder from a single walk of the tree.
+
+    Replaces one ``rglob`` per image when measuring a whole dataset.
+    """
+    index: dict[str, Path] = {}
+    for folder in data_dir.rglob("*"):
+        if folder.is_dir():
+            index.setdefault(folder.name, folder)
+    return index
 
 
 def _find_image_folder(data_dir: Path, image_name: str) -> Path | None:

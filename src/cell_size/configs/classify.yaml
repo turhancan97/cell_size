@@ -4,9 +4,11 @@ defaults:
   - _self_
 
 checkpoint: null              # path to best model checkpoint
+predictions_csv: null         # resume: reuse this predictions.csv and skip inference
 data_dir: '/shared/sets/datasets/vision/cellpose/Adults_training'                # root of segmented dataset to classify
 output_dir: "./classify_output"
 compute_filtered_areas: true
 compute_diameters: true       # measure major/minor axis (long/short diameter) per cell
+num_workers: null             # step 2 worker processes; null = CPUs allocated to the job
 generate_filtered_overlays: true
 pixel_to_um: null

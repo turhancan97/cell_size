@@ -49,7 +49,16 @@ def _to_display_rgb(img: np.ndarray) -> np.ndarray:
     else:
         out = img.copy()
 
-    out = out.astype(np.float64)
+    if np.issubdtype(out.dtype, np.integer):
+        # Scale through a lookup table rather than materialising a float64 copy
+        # of a full-resolution frame (~570 MB at 3984x6000 RGB).
+        lo, hi = int(out.min()), int(out.max())
+        if hi - lo == 0:
+            return np.zeros(out.shape, np.uint8)
+        lut = ((np.arange(hi - lo + 1, dtype=np.float32) * 255.0) / (hi - lo)).astype(np.uint8)
+        return lut[out - lo]
+
+    out = out.astype(np.float32)
     lo, hi = out.min(), out.max()
     if hi - lo > 0:
         out = (out - lo) / (hi - lo)
@@ -78,9 +87,6 @@ def generate_filtered_overlay(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     img_rgb = _to_display_rgb(img)
-    # Dim the base image so class overlays are visually dominant.
-    overlay = (img_rgb.astype(np.float64) / 255.0) * 0.75
-
     n_cells = int(masks.max())
     if n_cells == 0:
         fig, ax = plt.subplots(figsize=(20, 15))
@@ -116,43 +122,51 @@ def generate_filtered_overlay(
     alpha_bad = 0.45
     alpha_rejected = 0.55
 
-    for label in range(1, n_cells + 1):
-        cell_mask = masks == label
-        if not cell_mask.any():
-            continue
-        if label in good_labels:
-            colour = good_fill
-            alpha = alpha_good
-        elif label in rejected_labels:
-            colour = rejected_fill
-            alpha = alpha_rejected
-        else:
-            colour = bad_fill
-            alpha = alpha_bad
-        overlay[cell_mask] = (1 - alpha) * overlay[cell_mask] + alpha * colour
+    # Look up fill colour, alpha and outline colour by label, so the image is
+    # blended in one vectorised pass instead of once per cell.
+    labels = masks if np.issubdtype(masks.dtype, np.integer) else masks.astype(np.int32)
+    in_range = lambda ls: [i for i in ls if 0 < i <= n_cells]
+    good_idx = in_range(good_labels)
+    rejected_idx = in_range(rejected_labels)
 
-    result = (np.clip(overlay, 0, 1) * 255).astype(np.uint8)
+    fill_lut = np.zeros((n_cells + 1, 3), dtype=np.float64)
+    alpha_lut = np.zeros(n_cells + 1, dtype=np.float64)
+    outline_lut = np.zeros((n_cells + 1, 3), dtype=np.uint8)
+    is_good_lut = np.zeros(n_cells + 1, dtype=bool)
+
+    fill_lut[1:] = bad_fill
+    alpha_lut[1:] = alpha_bad
+    outline_lut[1:] = bad_outline
+    if rejected_idx:
+        fill_lut[rejected_idx] = rejected_fill
+        alpha_lut[rejected_idx] = alpha_rejected
+        outline_lut[rejected_idx] = rejected_outline
+    if good_idx:
+        fill_lut[good_idx] = good_fill
+        alpha_lut[good_idx] = alpha_good
+        outline_lut[good_idx] = good_outline
+        is_good_lut[good_idx] = True
+
+    # Dim the base image so class overlays are visually dominant. Blended one
+    # channel at a time in float64 to match the per-cell arithmetic exactly
+    # without holding three full-resolution float planes at once.
+    alpha = alpha_lut[labels]
+    inv_alpha = 1.0 - alpha
+    result = np.empty(img_rgb.shape, dtype=np.uint8)
+    for ch in range(3):
+        base_ch = img_rgb[..., ch].astype(np.float64) * (0.75 / 255.0)
+        blended = base_ch * inv_alpha + fill_lut[labels, ch] * alpha
+        result[..., ch] = (np.clip(blended, 0.0, 1.0) * 255).astype(np.uint8)
+    del alpha, inv_alpha
 
     outlines = find_boundaries(masks, mode="inner")
-    out_y, out_x = np.nonzero(outlines)
-    for y, x in zip(out_y, out_x):
-        label = masks[y, x]
-        if label in good_labels:
-            result[y, x] = good_outline
-        elif label in rejected_labels:
-            result[y, x] = rejected_outline
-        else:
-            result[y, x] = bad_outline
+    result[outlines] = outline_lut[labels[outlines]]
 
     # Draw nucleus boundaries inside good cells
     if nuc_masks is not None:
         nuc_outlines = find_boundaries(nuc_masks, mode="inner")
-        nuc_y, nuc_x = np.nonzero(nuc_outlines)
-        cyan = np.array([0, 220, 255], dtype=np.uint8)
-        for y, x in zip(nuc_y, nuc_x):
-            cell_label = masks[y, x]
-            if cell_label in good_labels:
-                result[y, x] = cyan
+        np.logical_and(nuc_outlines, is_good_lut[labels], out=nuc_outlines)
+        result[nuc_outlines] = np.array([0, 220, 255], dtype=np.uint8)
 
     slices = find_objects(masks)
     centroids: list[tuple[int, int, int]] = []

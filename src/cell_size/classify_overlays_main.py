@@ -34,7 +34,10 @@ def main(cfg: DictConfig) -> None:
         return
 
     predictions_df = pd.read_csv(predictions_csv)
-    overlays_dir = generate_filtered_overlays_from_predictions(data_dir, predictions_df, output_dir)
+    num_workers = cfg.num_workers if "num_workers" in cfg else None
+    overlays_dir = generate_filtered_overlays_from_predictions(
+        data_dir, predictions_df, output_dir, num_workers=num_workers
+    )
     logger.info("Filtered overlays written to %s", overlays_dir)
     logger.info("=== Overlay regeneration complete ===")
 

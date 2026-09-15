@@ -89,11 +89,38 @@ def _read_image_rgb(path: Path) -> np.ndarray:
     elif img.ndim == 3 and img.shape[2] > 3:
         img = img[:, :, :3]
 
-    img = img.astype(np.float64)
+    if np.issubdtype(img.dtype, np.integer):
+        # Scale through a lookup table: avoids materialising a float64 copy of
+        # a full-resolution image (~570 MB for a 3984x6000 RGB frame).
+        lo, hi = int(img.min()), int(img.max())
+        if hi - lo == 0:
+            return np.zeros(img.shape, np.uint8)
+        lut = ((np.arange(hi - lo + 1, dtype=np.float32) * 255.0) / (hi - lo)).astype(np.uint8)
+        return lut[img - lo]
+
+    img = img.astype(np.float32)
     lo, hi = img.min(), img.max()
     if hi - lo > 0:
         img = (img - lo) / (hi - lo)
     return (img * 255).astype(np.uint8)
+
+
+def _label_bboxes(mask: np.ndarray) -> dict[int, tuple[int, int, int, int]]:
+    """Bounding box (y_min, y_max, x_min, x_max) for every label, in one pass.
+
+    Equivalent to calling ``np.where(mask == label)`` per label, but scans the
+    mask once instead of once per cell.
+    """
+    from scipy import ndimage as ndi
+
+    labelled = mask if np.issubdtype(mask.dtype, np.signedinteger) else mask.astype(np.int32)
+    boxes: dict[int, tuple[int, int, int, int]] = {}
+    for idx, slices in enumerate(ndi.find_objects(labelled)):
+        if slices is None:
+            continue
+        ys, xs = slices
+        boxes[idx + 1] = (ys.start, ys.stop - 1, xs.start, xs.stop - 1)
+    return boxes
 
 
 def _crop_cell(
@@ -102,17 +129,24 @@ def _crop_cell(
     label: int,
     padding_pct: float = 0.2,
     mask_background: bool = False,
+    bbox: tuple[int, int, int, int] | None = None,
 ) -> np.ndarray:
     """Extract a padded bounding-box crop for a single cell.
 
+    ``bbox`` may be supplied (see :func:`_label_bboxes`) to avoid re-scanning
+    the mask for this label.
+
     Returns the cropped RGB image (H, W, 3) as uint8.
     """
-    ys, xs = np.where(mask == label)
-    if len(ys) == 0:
-        raise ValueError(f"Label {label} not found in mask")
+    if bbox is not None:
+        y_min, y_max, x_min, x_max = bbox
+    else:
+        ys, xs = np.where(mask == label)
+        if len(ys) == 0:
+            raise ValueError(f"Label {label} not found in mask")
 
-    y_min, y_max = int(ys.min()), int(ys.max())
-    x_min, x_max = int(xs.min()), int(xs.max())
+        y_min, y_max = int(ys.min()), int(ys.max())
+        x_min, x_max = int(xs.min()), int(xs.max())
 
     h = y_max - y_min + 1
     w = x_max - x_min + 1
@@ -174,6 +208,7 @@ def extract_crops(
                 continue
 
         img_rgb, mask_arr = cache[image_name]
+        boxes = _label_bboxes(mask_arr)
 
         for _, row in group.iterrows():
             label = int(row["mask_index"])
@@ -183,7 +218,9 @@ def extract_crops(
                 continue
 
             try:
-                crop = _crop_cell(img_rgb, mask_arr, label, padding_pct, mask_bg)
+                crop = _crop_cell(
+                    img_rgb, mask_arr, label, padding_pct, mask_bg, bbox=boxes.get(label)
+                )
             except ValueError:
                 logger.warning("Label %d not in mask for '%s', skipping", label, image_name)
                 continue
@@ -214,15 +251,16 @@ def extract_all_crops(
 
     Returns a list of ``(label, crop_resized)`` tuples.
     """
-    labels = np.unique(mask)
-    labels = labels[labels > 0]
+    boxes = _label_bboxes(mask)
     crops: list[tuple[int, np.ndarray]] = []
 
-    for label in labels:
+    for label in sorted(boxes):
         try:
-            crop = _crop_cell(img, mask, int(label), padding_pct, mask_background)
+            crop = _crop_cell(
+                img, mask, label, padding_pct, mask_background, bbox=boxes[label]
+            )
             crop_resized = cv2.resize(crop, (crop_size, crop_size), interpolation=cv2.INTER_AREA)
-            crops.append((int(label), crop_resized))
+            crops.append((label, crop_resized))
         except ValueError:
             continue
 

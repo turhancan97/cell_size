@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 import hydra
+import pandas as pd
 from omegaconf import DictConfig
 
 from cell_size.classifier.inference import (
@@ -27,7 +28,9 @@ def main(cfg: DictConfig) -> None:
     """
     logger.info("=== Cell Quality Classifier - Inference ===")
 
-    if cfg.checkpoint is None:
+    predictions_csv = cfg.predictions_csv if "predictions_csv" in cfg else None
+
+    if predictions_csv is None and cfg.checkpoint is None:
         logger.error("No checkpoint provided. Set checkpoint=/path/to/best_model.pt")
         return
     if cfg.data_dir is None:
@@ -36,10 +39,21 @@ def main(cfg: DictConfig) -> None:
 
     data_dir = Path(cfg.data_dir).resolve()
     output_dir = Path(cfg.output_dir).resolve()
-    checkpoint_path = Path(cfg.checkpoint).resolve()
 
-    logger.info("Step 1/3: Running batch inference")
-    predictions_df = run_inference(data_dir, checkpoint_path, output_dir, cfg.classifier)
+    if predictions_csv is not None:
+        # Resume: reuse a completed inference pass instead of re-running step 1.
+        predictions_path = Path(predictions_csv).resolve()
+        if not predictions_path.is_file():
+            logger.error("predictions_csv not found: %s", predictions_path)
+            return
+        logger.info("Step 1/3: Reusing existing predictions from %s", predictions_path)
+        predictions_df = pd.read_csv(
+            predictions_path, dtype={"image_path": str, "frog_id": str}
+        )
+    else:
+        checkpoint_path = Path(cfg.checkpoint).resolve()
+        logger.info("Step 1/3: Running batch inference")
+        predictions_df = run_inference(data_dir, checkpoint_path, output_dir, cfg.classifier)
 
     if predictions_df.empty:
         logger.warning("No predictions generated. Check data_dir contents.")
@@ -60,8 +74,10 @@ def main(cfg: DictConfig) -> None:
         config_pixel_to_um = float(cfg.pixel_to_um) if cfg.pixel_to_um is not None else None
         areas_path = output_dir / "filtered_areas.csv"
         diameters = bool(cfg.compute_diameters) if "compute_diameters" in cfg else True
+        num_workers = cfg.num_workers if "num_workers" in cfg else None
         compute_filtered_areas(
             data_dir, predictions_df, areas_path, config_pixel_to_um, diameters,
+            num_workers=num_workers,
         )
         if "morphology_qc" in cfg and bool(cfg.morphology_qc.enabled):
             logger.info("Step 2b/3: Applying morphology QC")
@@ -71,7 +87,10 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.generate_filtered_overlays:
         logger.info("Step 3/3: Generating filtered overlays")
-        generate_filtered_overlays_from_predictions(data_dir, predictions_df, output_dir)
+        generate_filtered_overlays_from_predictions(
+            data_dir, predictions_df, output_dir,
+            num_workers=cfg.num_workers if "num_workers" in cfg else None,
+        )
     else:
         logger.info("Step 3/3: Skipping filtered overlays (disabled)")
 

@@ -4,3 +4,4 @@ defaults:
 data_dir: null
 output_dir: "./classify_output"
 predictions_csv: null
+num_workers: null   # overlay worker processes; null = CPUs allocated to the job

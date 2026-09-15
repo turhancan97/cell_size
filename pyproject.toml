@@ -18,6 +18,7 @@ dependencies = [
     "natsort",
     "pandas",
     "scikit-image",
+    "scipy",
     "torch",
     "torchvision",
     "timm",
